@@ -1,4 +1,4 @@
-use std::slice;
+use std::{cell::Cell, slice};
 
 const MAX_MAP_WIDTH: usize = 1024;
 const MAX_MAP_HEIGHT: usize = 1024;
@@ -7,8 +7,8 @@ type TcellValue = i64;
 
 #[derive(Debug, Clone, Copy)]
 pub struct CellLayer {
-    id: u8,
-    val: TcellValue,
+    pub id: u8,
+    pub val: TcellValue,    // TODO: if val becomes a complex data-model, make this private and create impl for this struct
 }
 #[derive(Debug, Clone)]
 pub struct MapCell {
@@ -32,6 +32,21 @@ impl MapCell {
         }
 
         return Ok(MapCell { layers: new_layers });
+    }
+    pub fn get(self: &Self) -> Vec<CellLayer> {
+        return self.layers.clone(); // make a copy
+    }
+    pub fn first(self: &Self) -> Option<CellLayer> {
+        return match self.layers.is_empty() {
+            false => Some(self.layers.first().unwrap().clone()),
+            true => None,
+        };
+    }
+    pub fn last(self: &Self) -> Option<CellLayer> {
+        return match self.layers.is_empty() {
+            false => Some(self.layers.last().unwrap().clone()),
+            true => return None,
+        };
     }
 }
 
@@ -281,7 +296,7 @@ mod tests {
     #[test]
     fn create64x128() {
         let theMap = Map::create(64, 128).unwrap();
-        assert_eq!(theMap.grid[0][0].layers.len(), 0);   // when freshly creaed, each/any layers are empty
+        assert_eq!(theMap.grid[0][0].layers.len(), 0); // when freshly creaed, each/any layers are empty
     }
 
     #[test]
