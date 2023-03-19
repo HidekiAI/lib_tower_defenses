@@ -1,5 +1,6 @@
 include!(concat!(env!("OUT_DIR"), "/hello.rs"));
-use device_query::{DeviceQuery, DeviceState, Keycode};
+use device_query::{DeviceEvents, DeviceState};
+use device_query::{DeviceQuery,  Keycode};
 use libc::*;
 use std::{
     io::{self, prelude::*, stdin, Read, Write},
@@ -47,8 +48,24 @@ fn main() {
     let mut cursor_y: u8 = 0;
     let move_step_x: u8 = 5;
     let move_step_y: u8 = 5;
-    let mut lc = 0;
     let device_state = DeviceState::new();
+
+    let _guard = device_state.on_mouse_move(|position| {
+        print!(" Mouse position: {:#?} ", position);
+    });
+    let _guard = device_state.on_mouse_down(|button| {
+        print!(" Mouse button down: {:#?} ", button);
+    });
+    let _guard = device_state.on_mouse_up(|button| {
+        print!(" Mouse button up: {:#?} ", button);
+    });
+    let _guard = device_state.on_key_down(|key| {
+        print!(" Keyboard key down: {:#?} ", key);
+    });
+    let _guard = device_state.on_key_up(|key| {
+        print!(" Keyboard key up: {:#?} ", key);
+    });
+
     loop {
         let view = theMap
             .build_view(0, 0, SAMPLE_VIEW_WIDTH, SAMPLE_VIEW_HEIGHT)
@@ -134,6 +151,9 @@ fn main() {
                     _ => (),
                 }
             }
+            // update map position based on key pressed
+            theMap.set_upper_left(view_x, view_y);
+
             // for now, only update text if key is pressed
             let the_val = match theMap
                 .get_cell(view_x + cursor_x as u16, view_y + cursor_y as u16)
@@ -156,11 +176,9 @@ fn main() {
                 mouse.coords.1
             );
         } else {
-            println!("\nMouse:({}, {})", mouse.coords.0, mouse.coords.1);
+            println!("\nMouse:{:?}", mouse.coords);
         }
         // sleep mainly so that we can yield the app and let other processes run...
         thread::sleep(ms);
-        lc = lc + 1;
-        println!("{}", lc);
     }
 }
