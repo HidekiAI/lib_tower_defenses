@@ -8,7 +8,7 @@ type TcellValue = i64;
 #[derive(Debug, Clone, Copy)]
 pub struct CellLayer {
     pub id: u8,
-    pub val: TcellValue,    // TODO: if val becomes a complex data-model, make this private and create impl for this struct
+    pub val: TcellValue, // TODO: if val becomes a complex data-model, make this private and create impl for this struct
 }
 #[derive(Debug, Clone)]
 pub struct MapCell {
@@ -100,6 +100,9 @@ impl Map {
             current_y: 0,
         };
         Ok(map)
+    }
+    pub fn get_upper_left(self: &Self) -> (u16, u16) {
+        return (self.current_x, self.current_y);
     }
 
     pub fn set_upper_left(self: &mut Self, x: u16, y: u16) -> (u16, u16) {

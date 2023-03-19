@@ -1,6 +1,6 @@
 include!(concat!(env!("OUT_DIR"), "/hello.rs"));
 use device_query::{DeviceEvents, DeviceState};
-use device_query::{DeviceQuery,  Keycode};
+use device_query::{DeviceQuery, Keycode};
 use libc::*;
 use std::{
     io::{self, prelude::*, stdin, Read, Write},
@@ -36,6 +36,11 @@ fn render(x: u16, y: u16, view: Vec<i64>) {
     }
 }
 
+enum break_loop_type {
+    no_break = 0,
+    quit_without_save = 1,
+    save_and_exit = 2,
+}
 fn main() {
     println!("\x1b[2J"); // ESC[2J = clear entire screen (CLS)
     println!("main (text view): Cursor keys, PgUp, PgDn, '[', ']', 'space', 'Q', and Esc");
@@ -50,22 +55,25 @@ fn main() {
     let move_step_y: u8 = 5;
     let device_state = DeviceState::new();
 
-    let _guard = device_state.on_mouse_move(|position| {
-        print!(" Mouse position: {:#?} ", position);
-    });
-    let _guard = device_state.on_mouse_down(|button| {
-        print!(" Mouse button down: {:#?} ", button);
-    });
-    let _guard = device_state.on_mouse_up(|button| {
-        print!(" Mouse button up: {:#?} ", button);
-    });
-    let _guard = device_state.on_key_down(|key| {
-        print!(" Keyboard key down: {:#?} ", key);
-    });
-    let _guard = device_state.on_key_up(|key| {
-        print!(" Keyboard key up: {:#?} ", key);
-    });
+    // maybe in future, will use this callback method, but for now, want
+    // to keep cursor movement localized only within gameloop...
+    //let _guard = device_state.on_mouse_move(|position| {
+    //    print!(" Mouse position: {:#?} ", position);
+    //});
+    //let _guard = device_state.on_mouse_down(|button| {
+    //    print!(" Mouse button down: {:#?} ", button);
+    //});
+    //let _guard = device_state.on_mouse_up(|button| {
+    //    print!(" Mouse button up: {:#?} ", button);
+    //});
+    //let _guard = device_state.on_key_down(|key| {
+    //    print!(" Keyboard key down: {:#?} ", key);
+    //});
+    //let _guard = device_state.on_key_up(|key| {
+    //    print!(" Keyboard key up: {:#?} ", key);
+    //});
 
+    let mut break_loop = break_loop_type::no_break;
     loop {
         let view = theMap
             .build_view(0, 0, SAMPLE_VIEW_WIDTH, SAMPLE_VIEW_HEIGHT)
@@ -84,11 +92,13 @@ fn main() {
                     Keycode::Escape => {
                         // Prompt to save data
                         println!("escape");
+                        break_loop = break_loop_type::save_and_exit;
                         break;
                     }
                     Keycode::Q => {
                         // Prompt to quit without save
                         println!("quit");
+                        break_loop = break_loop_type::quit_without_save;
                         break;
                     }
                     Keycode::PageUp => {
@@ -153,32 +163,34 @@ fn main() {
             }
             // update map position based on key pressed
             theMap.set_upper_left(view_x, view_y);
-
-            // for now, only update text if key is pressed
-            let the_val = match theMap
-                .get_cell(view_x + cursor_x as u16, view_y + cursor_y as u16)
-                .unwrap()
-                .first()
-            {
-                Some(v) => v.val,
-                None => 0,
-            };
-            println!(
-                "\nWorld:({}, {}) Cursor:({}, {}) Pos:({}, {}) Val:{} - Mouse:({}, {})",
-                view_x,
-                view_y,
-                cursor_x,
-                cursor_y,
-                view_x + cursor_x as u16,
-                view_y + cursor_y as u16,
-                the_val,
-                mouse.coords.0,
-                mouse.coords.1
-            );
-        } else {
-            println!("\nMouse:{:?}", mouse.coords);
         }
+        // for now, only update text if key is pressed
+        let the_val = match theMap
+            .get_cell(view_x + cursor_x as u16, view_y + cursor_y as u16)
+            .unwrap()
+            .first()
+        {
+            Some(v) => v.val,
+            None => 0,
+        };
+        println!(
+            "\nMap:({:?}) - World:({}, {}) Cursor:({}, {}) Pos:({}, {}) Val:{} - Mouse:{:?}",
+            theMap.get_upper_left(),
+            view_x,
+            view_y,
+            cursor_x,
+            cursor_y,
+            view_x + cursor_x as u16,
+            view_y + cursor_y as u16,
+            the_val,
+            mouse.coords
+        );
         // sleep mainly so that we can yield the app and let other processes run...
         thread::sleep(ms);
+        match break_loop {
+            break_loop_type::quit_without_save => break,
+            break_loop_type::save_and_exit => break,
+            _ => (),
+        }
     }
 }
