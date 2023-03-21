@@ -266,6 +266,8 @@ impl Map {
         view_width: u8,
         view_height: u8,
     ) -> Result<Vec<TcellValue>, String> {
+        // Map:((5, 205)) - World:(5, 205) Cursor:(0, 0) Pos:(5, 205) Val:0 - Mouse:(1017, 618) - Keys:[PageDown]
+        // thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: "Map Y 205 exceeds the boundary of max height is 200"', src\map.rs:313:75
         let map_x = self.current_x + view_offset_x as u16;
         let map_y = self.current_y + view_offset_y as u16;
         if (map_x as usize) > MAX_MAP_WIDTH {

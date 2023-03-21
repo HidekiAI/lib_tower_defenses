@@ -15,9 +15,13 @@ const SAMPLE_VIEW_HEIGHT: u8 = 40;
 const SAMPLE_MAP_WIDTH: u16 = SAMPLE_VIEW_WIDTH as u16 * 5;
 const SAMPLE_MAP_HEIGHT: u16 = SAMPLE_VIEW_HEIGHT as u16 * 5;
 
-fn render(x: u16, y: u16, view: Vec<i64>) {
+fn render(x: u16, y: u16, view: Vec<i64>, cursor_x: u8, cursor_y: u8) {
     let layer_chars = b" .,-~:;&=!*[<#$@"; // for debuggin, replace ' ' (space) with '.' if needed
-    println!("\x1b[H\n"); // ESC[H = move cursor back to HOME position (done per each gameloop) and add 1 line down for status
+    let cursor_char = 'o';
+    let escape = "\x1b";
+    println!("{}[2J", escape); // ESC[2J = clear entire screen (CLS) because we need to clear last scroll image (also removes last cursor position)
+    println!("{}[H\n", escape); // ESC[H = move cursor back to HOME position (done per each gameloop) and add 1 line down for status
+
     for h in 0..SAMPLE_VIEW_HEIGHT {
         for w in 0..SAMPLE_VIEW_WIDTH {
             let i = (h as usize * SAMPLE_VIEW_WIDTH as usize) + w as usize; // NOTE: will get overflow if you do not explicitly cast here
@@ -30,7 +34,16 @@ fn render(x: u16, y: u16, view: Vec<i64>) {
             //    libc::putchar(ch);
             //}
             let ch: char = layer_chars[v] as char;
-            print!("{}", ch);
+            if h == cursor_y && w == cursor_x {
+                if ch == ' ' {
+                    print!("{}", cursor_char);
+                } else {
+                    // bold
+                    print!("{}[1m{}{}[0m", escape, ch, escape);
+                }
+            } else {
+                print!("{}", ch);
+            }
         }
         println!("");
     }
@@ -83,7 +96,7 @@ fn main() {
             break_loop = break_loop_type::application_error;
             break;
         }
-        render(view_x, view_y, view);
+        render(view_x, view_y, view, cursor_x, cursor_y);
 
         let mouse = device_state.get_mouse();
         let keys: Vec<Keycode> = device_state.get_keys();
@@ -117,15 +130,21 @@ fn main() {
                         }
                     }
                     Keycode::PageDown => {
-                        if view_y < theMap.get_height() + SAMPLE_MAP_HEIGHT + move_step_y as u16 {
-                            view_y = view_y + move_step_y as u16;
+                        let top_y = view_y + move_step_y as u16;
+                        let bot_y = top_y + SAMPLE_VIEW_HEIGHT as u16;
+
+                        if bot_y < theMap.get_height() {
+                            view_y = top_y;
                         }
                     }
                     Keycode::Down => {
+                        let top_y = view_y + move_step_y as u16;
+                        let bot_y = top_y + SAMPLE_VIEW_HEIGHT as u16;
+
                         if cursor_y < SAMPLE_VIEW_HEIGHT {
                             cursor_y = cursor_y + 1;
-                        } else if view_y < theMap.get_height() + SAMPLE_MAP_HEIGHT {
-                            view_y = view_y + move_step_y as u16;
+                        } else if bot_y < theMap.get_height() {
+                            view_y = top_y;
                         }
                     }
                     Keycode::LeftBracket => {
@@ -142,16 +161,34 @@ fn main() {
                         }
                     }
                     Keycode::RightBracket => {
-                        if view_x < theMap.get_width() + SAMPLE_MAP_WIDTH + move_step_x as u16 {
-                            view_x = view_x + move_step_x as u16;
+                        let left_x = view_x + move_step_x as u16;
+                        let right_x = left_x + SAMPLE_VIEW_WIDTH as u16;
+
+                        if right_x < theMap.get_width() {
+                            view_x = left_x;
                         }
                     }
                     Keycode::Right => {
+                        let left_x = view_x + move_step_x as u16;
+                        let right_x = left_x + SAMPLE_VIEW_WIDTH as u16;
+
                         if cursor_x < SAMPLE_VIEW_WIDTH {
                             cursor_x = cursor_x + 1;
-                        } else if view_x < theMap.get_width() + SAMPLE_MAP_WIDTH {
-                            view_x = view_x + move_step_x as u16;
+                        } else if right_x < theMap.get_width() {
+                            view_x = left_x;
                         }
+                    }
+                    Keycode::Home => {
+                        view_x = 0;
+                        view_y = 0;
+                        cursor_x = 0;
+                        cursor_y = 0;
+                    }
+                    Keycode::End => {
+                        cursor_x = SAMPLE_VIEW_WIDTH - 0;
+                        cursor_y = SAMPLE_VIEW_HEIGHT - 0;
+                        view_x = SAMPLE_MAP_WIDTH - 0;
+                        view_y = SAMPLE_MAP_HEIGHT - 0;
                     }
                     Keycode::Space => {
                         let pos_x = view_x + cursor_x as u16;
@@ -159,9 +196,9 @@ fn main() {
                         let mut cursor_position_cell =
                             match theMap.get_cell(pos_x, pos_y).unwrap().first().is_some() {
                                 true => theMap.get_cell(pos_x, pos_y).unwrap(),
-                                false => {
-                                    MapCell { layers: vec![CellLayer::new(0, 0); 1] }
-                                }
+                                false => MapCell {
+                                    layers: vec![CellLayer::new(0, 0); 1],
+                                },
                             };
 
                         for layer in cursor_position_cell.layers.clone() {
@@ -197,7 +234,7 @@ fn main() {
         }
         keys_input.push_str("]");
         println!(
-            "\x1b[HMap:({:?}) - World:({}, {}) Cursor:({}, {}) Pos:({}, {}) Val:{} - Mouse:{:?} - Keys:{}                    ",
+            "\x1b[HMap:{:?} - World:({}, {}) Cursor:({}, {}) Pos:({}, {}) Val:{} - Mouse:{:?} - Keys:{}                    ",
             theMap.get_upper_left(),
             view_x,
             view_y,
