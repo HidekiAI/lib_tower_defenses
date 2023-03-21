@@ -8,7 +8,7 @@ use std::{
 };
 
 // see build.rs
-use lib_tower_defense::map::Map;
+use lib_tower_defense::map::{CellLayer, Map, MapCell};
 
 const SAMPLE_VIEW_WIDTH: u8 = 80;
 const SAMPLE_VIEW_HEIGHT: u8 = 40;
@@ -17,7 +17,7 @@ const SAMPLE_MAP_HEIGHT: u16 = SAMPLE_VIEW_HEIGHT as u16 * 5;
 
 fn render(x: u16, y: u16, view: Vec<i64>) {
     let layer_chars = b" .,-~:;&=!*[<#$@"; // for debuggin, replace ' ' (space) with '.' if needed
-    println!("\x1b[H"); // ESC[H = move cursor back to HOME position (done per each gameloop)
+    println!("\x1b[H\n"); // ESC[H = move cursor back to HOME position (done per each gameloop) and add 1 line down for status
     for h in 0..SAMPLE_VIEW_HEIGHT {
         for w in 0..SAMPLE_VIEW_WIDTH {
             let i = (h as usize * SAMPLE_VIEW_WIDTH as usize) + w as usize; // NOTE: will get overflow if you do not explicitly cast here
@@ -40,6 +40,7 @@ enum break_loop_type {
     no_break = 0,
     quit_without_save = 1,
     save_and_exit = 2,
+    application_error,
 }
 fn main() {
     println!("\x1b[2J"); // ESC[2J = clear entire screen (CLS)
@@ -78,15 +79,16 @@ fn main() {
         let view = theMap
             .build_view(0, 0, SAMPLE_VIEW_WIDTH, SAMPLE_VIEW_HEIGHT)
             .unwrap();
+        if view.len() == 0 {
+            break_loop = break_loop_type::application_error;
+            break;
+        }
         render(view_x, view_y, view);
 
         let mouse = device_state.get_mouse();
         let keys: Vec<Keycode> = device_state.get_keys();
+        let test_keys = keys.clone();
         if !keys.is_empty() {
-            for k in keys.clone() {
-                print!("{}", k);
-            }
-            print!(" -> ");
             for k in keys {
                 match k {
                     Keycode::Escape => {
@@ -154,9 +156,24 @@ fn main() {
                     Keycode::Space => {
                         let pos_x = view_x + cursor_x as u16;
                         let pos_y = view_y + cursor_y as u16;
-                        let mut currentCell = theMap.get_cell(pos_x, pos_y).unwrap();
-                        currentCell.set(1, 1);
-                        theMap.set(pos_x, pos_y, currentCell);
+                        let mut cursor_position_cell =
+                            match theMap.get_cell(pos_x, pos_y).unwrap().first().is_some() {
+                                true => theMap.get_cell(pos_x, pos_y).unwrap(),
+                                false => {
+                                    MapCell { layers: vec![CellLayer::new(0, 0); 1] }
+                                }
+                            };
+
+                        for layer in cursor_position_cell.layers.clone() {
+                            let temp_cycle_the_value_on_space = match layer.val + 1 > 8 {
+                                false => layer.val + 1,
+                                true => 0,
+                            };
+                            // Note: set() should add if missing, but in this case, we're iterating through existing Layers, so it assumes it's always an update/repleace
+                            cursor_position_cell.set(layer.id, temp_cycle_the_value_on_space);
+                        }
+
+                        theMap.set(pos_x, pos_y, cursor_position_cell);
                     }
                     _ => (),
                 }
@@ -164,6 +181,7 @@ fn main() {
             // update map position based on key pressed
             theMap.set_upper_left(view_x, view_y);
         }
+
         // for now, only update text if key is pressed
         let the_val = match theMap
             .get_cell(view_x + cursor_x as u16, view_y + cursor_y as u16)
@@ -173,8 +191,13 @@ fn main() {
             Some(v) => v.val,
             None => 0,
         };
+        let mut keys_input = "[".to_owned();
+        for k in test_keys {
+            keys_input.push_str(&k.to_string());
+        }
+        keys_input.push_str("]");
         println!(
-            "\nMap:({:?}) - World:({}, {}) Cursor:({}, {}) Pos:({}, {}) Val:{} - Mouse:{:?}",
+            "\x1b[HMap:({:?}) - World:({}, {}) Cursor:({}, {}) Pos:({}, {}) Val:{} - Mouse:{:?} - Keys:{}                    ",
             theMap.get_upper_left(),
             view_x,
             view_y,
@@ -183,7 +206,7 @@ fn main() {
             view_x + cursor_x as u16,
             view_y + cursor_y as u16,
             the_val,
-            mouse.coords
+            mouse.coords, keys_input
         );
         // sleep mainly so that we can yield the app and let other processes run...
         thread::sleep(ms);

@@ -10,29 +10,47 @@ pub struct CellLayer {
     pub id: u8,
     pub val: TcellValue, // TODO: if val becomes a complex data-model, make this private and create impl for this struct
 }
+impl CellLayer {
+    pub fn new(new_id: u8, new_val: TcellValue) -> CellLayer {
+        CellLayer {
+            id: new_id,
+            val: new_val,
+        }
+    }
+}
 #[derive(Debug, Clone)]
 pub struct MapCell {
     pub layers: Vec<CellLayer>, // this means we cannot derive Copy, use .clone()
 }
 impl MapCell {
-    pub fn set(self: &Self, newID: u8, newVal: TcellValue) -> Result<MapCell, String> {
+    // add or update layer
+    pub fn set(self: &mut Self, new_id: u8, new_val: TcellValue) -> Result<Option<bool>, String> {
         let mut new_layers: Vec<CellLayer> = Vec::new();
-        let new_layers_iter = self.layers.iter().filter(|v| v.id != newID).map(|v| *v);
+        let new_layers_iter = self.layers.iter().filter(|v| v.id != new_id).map(|v| *v);
 
         for iter in new_layers_iter {
             new_layers.push(iter);
         }
         new_layers.push(CellLayer {
-            id: newID,
-            val: newVal,
+            id: new_id,
+            val: new_val,
         });
 
         if new_layers.len() + 1 > MAX_LAYERS_PER_CELL {
-            return Err(format!("Cell ID {} exceeds {}", newID, MAX_LAYERS_PER_CELL));
+            return Err(format!(
+                "Cell ID {} exceeds {}",
+                new_id, MAX_LAYERS_PER_CELL
+            ));
         }
 
-        return Ok(MapCell { layers: new_layers });
+        self.layers = new_layers;
+        return Ok(None);
     }
+    pub fn update(self: &mut Self, layers: Vec<CellLayer>) -> Result<Option<bool>, String> {
+        self.layers = layers;
+        return Ok(None);
+    }
+
     pub fn get(self: &Self) -> Vec<CellLayer> {
         return self.layers.clone(); // make a copy
     }
@@ -152,11 +170,35 @@ impl Map {
         map_y: u16,
         width: u8,
     ) -> Result<Vec<MapCell>, String> {
+        if width == 0 {
+            return Err("Width request was 0".to_owned());
+        }
+        if width as u16 > self.width {
+            return Err(format!(
+                "Width request was {}, but max width is {}",
+                width, self.width
+            ));
+        }
+        if map_y > self.height {
+            return Err(format!(
+                "Map Y {} exceeds the boundary of max height is {}",
+                map_y, self.height
+            ));
+        }
+        if map_x > self.width {
+            return Err(format!(
+                "Map X {} exceeds the boundary of max width is {}",
+                map_x, self.width
+            ));
+        }
         let row = &self.grid[map_y as usize];
         let islice = row.iter().skip(map_x as usize).take(width as usize);
 
         let mut vslice: Vec<MapCell> = Vec::new();
         islice.for_each(|mc| vslice.push(mc.clone()));
+        if vslice.len() == 0 {
+            return Err("Somehow, the slice of requested dimension is empty!".to_owned());
+        }
         return Ok(vslice); // clone since we don't have Copy
     }
 
@@ -269,20 +311,27 @@ impl Map {
         let mut slices: Vec<Vec<MapCell>> = Vec::new();
         for row in 0..view_height {
             let perRowSlice = self.get_cell_row(map_x, map_y, view_width).unwrap();
+            if perRowSlice.len() != view_width as usize {
+                return Err("Why did we not get the row?".to_owned());
+            }
             slices.push(perRowSlice);
+        }
+        if slices.len() != view_height as usize {
+            return Err("Why did we not get the view height?".to_owned());
         }
 
         let mut retSlicesFlatten: Vec<TcellValue> = Vec::new();
         for vRow in slices {
             let mut vals: Vec<TcellValue> = Vec::new();
+            if (vRow.len() == 0) || (vRow.len() != view_width as usize) {
+                return Err("Why did we not get the row?".to_owned());
+            }
             for vc in vRow {
                 let mut topMost: TcellValue = 0;
                 if vc.layers.len() > 0 {
                     // this this be reversed iteratations where tail of the queue is the topmost?
                     topMost = vc.layers.first().unwrap().val; // we've already tested len() > 0, so safe to unwrap here
-                    break;
                 }
-
                 vals.push(topMost);
             }
             retSlicesFlatten.append(&mut vals);
@@ -309,8 +358,9 @@ mod tests {
         let posY = 0;
         let layerID = 0;
         let newVal = 2;
-        let theResult = theMap.grid[posX as usize][posY as usize].set(layerID, newVal);
-        theMap.grid[posX as usize][posY as usize] = theResult.unwrap();
+        let theResult = theMap.grid[posX as usize][posY as usize]
+            .set(layerID, newVal)
+            .unwrap(); // should throw with Unwrap()
         assert_eq!(
             theMap.grid[posX as usize][posY as usize].layers[layerID as usize].val,
             newVal
