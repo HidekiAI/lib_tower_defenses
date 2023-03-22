@@ -1,15 +1,33 @@
-use std::{cell::Cell, slice};
+use serde::ser::SerializeStruct;
+use serde::{Deserialize, Serialize, Serializer};
+use serde_derive::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use serde_test::{assert_tokens, Token};
+use std::{cell::Cell, error::Error, slice};
 
 const MAX_MAP_WIDTH: usize = 1024;
 const MAX_MAP_HEIGHT: usize = 1024;
 const MAX_LAYERS_PER_CELL: usize = 16;
 type TcellValue = i64;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct CellLayer {
     pub id: u8,
     pub val: TcellValue, // TODO: if val becomes a complex data-model, make this private and create impl for this struct
 }
+
+//impl Serialize for CellLayer {
+//    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+//    where
+//        S: Serializer,
+//    {
+//        let mut state = serializer.serialize_struct("CellLayer", 2)?; // currently, only 2 fields
+//        state.serialize_field("id", &self.id)?;
+//        state.serialize_field("val", &self.val)?;
+//        state.end()
+//    }
+//}
+
 impl CellLayer {
     pub fn new(new_id: u8, new_val: TcellValue) -> CellLayer {
         CellLayer {
@@ -17,24 +35,37 @@ impl CellLayer {
             val: new_val,
         }
     }
+    //pub fn save(self: &Self) -> Result<String, String> {
+    //    let s = serde_json::to_string(self).unwrap();
+    //    return Ok(s);
+    //}
 }
-#[derive(Debug, Clone)]
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MapCell {
     pub layers: Vec<CellLayer>, // this means we cannot derive Copy, use .clone()
 }
+
+//impl Serialize for MapCell {
+//    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+//    where
+//        S: Serializer,
+//    {
+//        let mut state = serializer.serialize_struct("MapCell", 1)?; // currently, only 2 fields
+//        state.serialize_field("layers", &self.layers)?;
+//        state.end()
+//    }
+//}
 impl MapCell {
     // add or update layer
-    pub fn set(self: &mut Self, new_id: u8, new_val: TcellValue) -> Result<Option<bool>, String> {
+    pub fn set(self: &mut Self, new_id: u8, new_val: TcellValue) -> Result<(), String> {
         let mut new_layers: Vec<CellLayer> = Vec::new();
         let new_layers_iter = self.layers.iter().filter(|v| v.id != new_id).map(|v| *v);
 
         for iter in new_layers_iter {
             new_layers.push(iter);
         }
-        new_layers.push(CellLayer {
-            id: new_id,
-            val: new_val,
-        });
+        new_layers.push(CellLayer::new(new_id, new_val));
 
         if new_layers.len() + 1 > MAX_LAYERS_PER_CELL {
             return Err(format!(
@@ -44,11 +75,11 @@ impl MapCell {
         }
 
         self.layers = new_layers;
-        return Ok(None);
+        return Ok(());
     }
-    pub fn update(self: &mut Self, layers: Vec<CellLayer>) -> Result<Option<bool>, String> {
+    pub fn update(self: &mut Self, layers: Vec<CellLayer>) -> Result<(), String> {
         self.layers = layers;
-        return Ok(None);
+        return Ok(());
     }
 
     pub fn get(self: &Self) -> Vec<CellLayer> {
@@ -70,7 +101,7 @@ impl MapCell {
 
 // UpperLeft (0,0), while BottomRight is (map_width, map_height)
 // hence movement on +X moves to right and movment in +Y moves downwards.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Map {
     // for optimization reasons, rather than being column-ordered grid[x][y], the grid is
     // row-ordered grid[row][column] for views
@@ -80,6 +111,21 @@ pub struct Map {
     current_x: u16, // UpperLeft, for moving about the map (mainly for View)
     current_y: u16,
 }
+
+//impl Serialize for Map {
+//    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+//    where
+//        S: Serializer,
+//    {
+//        let mut state = serializer.serialize_struct("Map", 5)?; // currently, only 2 fields
+//        state.serialize_field("grid", &self.grid)?;
+//        state.serialize_field("width", &self.width)?;
+//        state.serialize_field("height", &self.height)?;
+//        state.serialize_field("current_x", &self.current_x)?;
+//        state.serialize_field("current_y", &self.current_y)?;
+//        state.end()
+//    }
+//}
 impl Map {
     pub fn get_width(self: &Self) -> u16 {
         return self.width;
@@ -202,7 +248,7 @@ impl Map {
         return Ok(vslice); // clone since we don't have Copy
     }
 
-    pub fn set(self: &mut Self, map_x: u16, map_y: u16, cell: MapCell) -> Result<bool, String> {
+    pub fn set(self: &mut Self, map_x: u16, map_y: u16, cell: MapCell) -> Result<(), String> {
         if map_x as usize > MAX_MAP_WIDTH {
             return Err(format!(
                 "Cannot assign MapCell to position ([{}], {}) for its X position exceeds {}",
@@ -216,14 +262,14 @@ impl Map {
             ));
         }
         self.grid[map_y as usize][map_x as usize] = cell;
-        return Ok(true);
+        return Ok(());
     }
     pub fn set_view(
         self: &mut Self,
         view_offset_x: u8,
         view_offset_y: u8,
         cell: MapCell,
-    ) -> Result<bool, String> {
+    ) -> Result<(), String> {
         return self.set(
             self.current_x + view_offset_x as u16,
             self.current_y + view_offset_y as u16,
@@ -235,7 +281,7 @@ impl Map {
         map_y: u16,
         x_offset: u8,
         row_slice: Vec<MapCell>,
-    ) -> Result<bool, String> {
+    ) -> Result<(), String> {
         if map_y as usize > MAX_MAP_HEIGHT {
             return Err(format!(
                 "Cannot assign row of MapCells to position ({}, [{}]) for its Y position exceeds {}",
@@ -255,7 +301,7 @@ impl Map {
                 row_slice[i].clone(),
             );
         }
-        return Ok(true);
+        return Ok(());
     }
 
     // convert 2D to single array strided
@@ -341,6 +387,23 @@ impl Map {
 
         return Ok(retSlicesFlatten);
     }
+
+    // NOTE: There will NOT be any I/O here, we just transform it into serializable data format (for now, JSON)
+    // and it will be up to the caller to I/O (persist) it
+    pub fn serialize(self: &Self) -> Result<String, String> {
+        match serde_json::to_string_pretty(self) {
+            Ok(s) => Ok(s),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+
+    // NOTE: For now, because we're deserializing from JSON, we receive it as String type
+    pub fn deserialize(str_json: &String) -> Result<Map, String> {
+        match serde_json::from_str(str_json) {
+            Ok(m) => return Ok(m),
+            Err(e) => Err(e.to_string()),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -394,5 +457,20 @@ mod tests {
             }
             println!("");
         }
+    }
+
+    #[test]
+    fn test_serialize() {
+        let theMap = Map::create(16, 32).unwrap();
+        let view_x = 2;
+        let view_y = 2;
+        let view_width = 4;
+        let view_height = 8;
+        let view = theMap
+            .build_view(view_x, view_y, view_width, view_height)
+            .unwrap();
+        let str_json = theMap.serialize().unwrap();
+        //println!("{}", str_json);     // TODO: Not a good idea to pretty-print JSON of grid<>
+        //that is huge...  need to switch to bin format to reduce this huge Vec<<Vec<Layer>> map
     }
 }
