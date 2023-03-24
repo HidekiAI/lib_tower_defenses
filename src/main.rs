@@ -202,12 +202,12 @@ fn main() {
                             };
 
                         for layer in cursor_position_cell.layers.clone() {
-                            let temp_cycle_the_value_on_space = match layer.1 + 1 > 8 {
-                                false => layer.1 + 1,
+                            let temp_cycle_the_value_on_space = match layer.val + 1 > 8 {
+                                false => layer.val + 1,
                                 true => 0,
                             };
                             // Note: set() should add if missing, but in this case, we're iterating through existing Layers, so it assumes it's always an update/repleace
-                            cursor_position_cell.set(layer.0, temp_cycle_the_value_on_space);
+                            cursor_position_cell.set(layer.id, temp_cycle_the_value_on_space);
                         }
 
                         theMap.set(pos_x, pos_y, cursor_position_cell);
@@ -225,7 +225,7 @@ fn main() {
             .unwrap()
             .first()
         {
-            Some(v) => v.1,
+            Some(v) => v.val,
             None => 0,
         };
         let mut keys_input = "[".to_owned();

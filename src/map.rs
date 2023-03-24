@@ -1,8 +1,11 @@
+extern crate serde;
+
+use rmp_serde::{decode, encode, from_slice, Deserializer, Serializer};
 use serde::ser::SerializeStruct;
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
+//use serde::{Deserialize, Serialize, Serializer};
 use serde_derive::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use serde_test::{assert_tokens, Token};
+use std::collections::HashMap;
 use std::{cell::Cell, error::Error, slice};
 
 const MAX_MAP_WIDTH: usize = 1024;
@@ -10,7 +13,7 @@ const MAX_MAP_HEIGHT: usize = 1024;
 const MAX_LAYERS_PER_CELL: usize = 16;
 type TcellValue = i64;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
 pub struct CellLayer {
     pub id: u8,
     pub val: TcellValue, // TODO: if val becomes a complex data-model, make this private and create impl for this struct
@@ -41,7 +44,8 @@ impl CellLayer {
     //}
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+//#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MapCell {
     pub layers: Vec<CellLayer>, // this means we cannot derive Copy, use .clone()
 }
@@ -101,7 +105,9 @@ impl MapCell {
 
 // UpperLeft (0,0), while BottomRight is (map_width, map_height)
 // hence movement on +X moves to right and movment in +Y moves downwards.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+//#[derive(Debug, PartialEq, Clone)]
+//#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Map {
     // for optimization reasons, rather than being column-ordered grid[x][y], the grid is
     // row-ordered grid[row][column] for views
@@ -112,10 +118,27 @@ pub struct Map {
     current_y: u16,
 }
 
+//impl Deserialize for Map {
+//    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+//    where
+//        D: serde::Deserializer<'de> {
+//        todo!()
+//    }
+//
+//    fn deserialize_in_place<D>(deserializer: D, place: &mut Self) -> Result<(), D::Error>
+//    where
+//        D: serde::Deserializer<'de>,
+//    {
+//        // Default implementation just delegates to `deserialize` impl.
+//        *place = try!(Deserialize::deserialize(deserializer));
+//        Ok(())
+//    }
+//}
+//
 //impl Serialize for Map {
 //    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
 //    where
-//        S: Serializer,
+//        S: serde::Serializer,
 //    {
 //        let mut state = serializer.serialize_struct("Map", 5)?; // currently, only 2 fields
 //        state.serialize_field("grid", &self.grid)?;
@@ -390,17 +413,29 @@ impl Map {
 
     // NOTE: There will NOT be any I/O here, we just transform it into serializable data format (for now, JSON)
     // and it will be up to the caller to I/O (persist) it
-    pub fn serialize(self: &Self) -> Result<String, String> {
-        match serde_json::to_string_pretty(self) {
-            Ok(s) => Ok(s),
+    pub fn serialize_for_save(self: &Self) -> Result<Vec<u8>, String> {
+        let mut dest_buffer = Vec::new();
+        match self.serialize(&mut rmp_serde::Serializer::new(&mut dest_buffer)) {
+            Ok(s) => Ok(dest_buffer),
             Err(e) => Err(e.to_string()),
         }
     }
 
     // NOTE: For now, because we're deserializing from JSON, we receive it as String type
-    pub fn deserialize(str_json: &String) -> Result<Map, String> {
-        match serde_json::from_str(str_json) {
-            Ok(m) => return Ok(m),
+    pub fn deserialize_for_load(bin_data: &Vec<u8>) -> Result<Map, String> {
+        //let inbuf = bin_data.as_slice();
+        //let mut dest_buff = rmp_serde::Deserializer::from_slice(&mut inbuf);
+        //match rmp_serde::from_slice(&mut bin_data.as_slice()) {
+        //    Ok(m) => match rmp_serde::Deserializer::new(m) {
+        //       zzz => zzz.,
+        //    },
+        //    Err(ee) => Err(ee.to_string()),
+        //}
+        let mut inbuf = bin_data.as_slice();
+        let dest_buff: Result<Map, _> = rmp_serde::from_slice(&mut inbuf);
+        //let des = rmp_serde::Deserializer::new(dest_buff.unwrap());
+        match dest_buff {
+            Ok(m) => Ok(m),
             Err(e) => Err(e.to_string()),
         }
     }
@@ -408,7 +443,10 @@ impl Map {
 
 #[cfg(test)]
 mod tests {
+    //use core::slice::SlicePattern;
+
     use super::*;
+    use serde_test::{assert_tokens, Token};
 
     #[test]
     fn create64x128() {
@@ -460,17 +498,26 @@ mod tests {
     }
 
     #[test]
-    fn test_serialize() {
-        let theMap = Map::create(16, 32).unwrap();
-        let view_x = 2;
-        let view_y = 2;
-        let view_width = 4;
-        let view_height = 8;
-        let view = theMap
-            .build_view(view_x, view_y, view_width, view_height)
-            .unwrap();
-        let str_json = theMap.serialize().unwrap();
-        //println!("{}", str_json);     // TODO: Not a good idea to pretty-print JSON of grid<>
-        //that is huge...  need to switch to bin format to reduce this huge Vec<<Vec<Layer>> map
+    fn test_serialize_deserialize() {
+        let mut theMap = Map::create(64, 128).unwrap(); // gotta make it mutable if we're going to allow update
+        let posX = 0;
+        let posY = 0;
+        let layerID = 0;
+        let newVal = 2;
+        let theResult = theMap.grid[posX as usize][posY as usize]
+            .set(layerID, newVal)
+            .unwrap(); // should throw with Unwrap()
+
+        let mut buf = Vec::new();
+        theMap.serialize(&mut Serializer::new(&mut buf)).unwrap();
+
+        let mut de = Deserializer::new(&buf[..]);
+        let my_struct_deserialized = Map::deserialize(&mut de).unwrap();
+
+        assert_eq!(theMap, my_struct_deserialized);
+        assert_eq!(
+            my_struct_deserialized.grid[posX as usize][posY as usize].layers[layerID as usize].val,
+            newVal
+        );
     }
 }
