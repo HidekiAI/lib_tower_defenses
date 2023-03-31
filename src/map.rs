@@ -1,12 +1,6 @@
 extern crate serde;
-
-use rmp_serde::{decode, encode, from_slice, Deserializer, Serializer};
-use serde::ser::SerializeStruct;
-use serde::{Deserialize, Serialize};
-//use serde::{Deserialize, Serialize, Serializer};
+use serde::{Serialize};
 use serde_derive::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::{cell::Cell, error::Error, slice};
 
 const MAX_MAP_WIDTH: usize = 1024;
 const MAX_MAP_HEIGHT: usize = 1024;
@@ -322,7 +316,7 @@ impl Map {
                 x_offset as u16 + i as u16,
                 map_y as u16,
                 row_slice[i].clone(),
-            );
+            ).unwrap();
         }
         return Ok(());
     }
@@ -380,45 +374,45 @@ impl Map {
             ));
         }
         let mut slices: Vec<Vec<MapCell>> = Vec::new();
-        for row in 0..view_height {
-            let perRowSlice = self.get_cell_row(map_x, map_y, view_width).unwrap();
-            if perRowSlice.len() != view_width as usize {
+        for _ in 0..view_height {
+            let per_row_slice = self.get_cell_row(map_x, map_y, view_width).unwrap();
+            if per_row_slice.len() != view_width as usize {
                 return Err("Why did we not get the row?".to_owned());
             }
-            slices.push(perRowSlice);
+            slices.push(per_row_slice);
         }
         if slices.len() != view_height as usize {
             return Err("Why did we not get the view height?".to_owned());
         }
 
-        let mut retSlicesFlatten: Vec<TcellValue> = Vec::new();
-        for vRow in slices {
+        let mut ret_slices_flatten: Vec<TcellValue> = Vec::new();
+        for row in slices {
             let mut vals: Vec<TcellValue> = Vec::new();
-            if (vRow.len() == 0) || (vRow.len() != view_width as usize) {
+            if (row.len() == 0) || (row.len() != view_width as usize) {
                 return Err("Why did we not get the row?".to_owned());
             }
-            for vc in vRow {
-                let mut topMost: TcellValue = 0;
+            for vc in row {
+                let mut top_most: TcellValue = 0;
                 if vc.layers.len() > 0 {
                     // this this be reversed iteratations where tail of the queue is the topmost?
-                    topMost = vc.layers.first().unwrap().val; // we've already tested len() > 0, so safe to unwrap here
+                    top_most = vc.layers.first().unwrap().val; // we've already tested len() > 0, so safe to unwrap here
                 }
-                vals.push(topMost);
+                vals.push(top_most);
             }
-            retSlicesFlatten.append(&mut vals);
+            ret_slices_flatten.append(&mut vals);
         }
 
-        return Ok(retSlicesFlatten);
+        return Ok(ret_slices_flatten);
     }
 
     // NOTE: There will NOT be any I/O here, we just transform it into serializable data format (for now, JSON)
     // and it will be up to the caller to I/O (persist) it
     pub fn serialize_for_save(self: &Self) -> Result<Vec<u8>, String> {
         let mut dest_buffer = Vec::new();
-        match self.serialize(&mut rmp_serde::Serializer::new(&mut dest_buffer)) {
-            Ok(s) => Ok(dest_buffer),
+        return match self.serialize(&mut rmp_serde::Serializer::new(&mut dest_buffer)) {
+            Ok(_s) => Ok(dest_buffer),
             Err(e) => Err(e.to_string()),
-        }
+        };
     }
 
     // NOTE: For now, because we're deserializing from JSON, we receive it as String type
@@ -434,10 +428,10 @@ impl Map {
         let mut inbuf = bin_data.as_slice();
         let dest_buff: Result<Map, _> = rmp_serde::from_slice(&mut inbuf);
         //let des = rmp_serde::Deserializer::new(dest_buff.unwrap());
-        match dest_buff {
+        return match dest_buff {
             Ok(m) => Ok(m),
             Err(e) => Err(e.to_string()),
-        }
+        };
     }
 }
 
@@ -446,47 +440,47 @@ mod tests {
     //use core::slice::SlicePattern;
 
     use super::*;
-    use serde_test::{assert_tokens, Token};
+    //use serde_test::{assert_tokens, Token};
 
     #[test]
     fn create64x128() {
-        let theMap = Map::create(64, 128).unwrap();
-        assert_eq!(theMap.grid[0][0].layers.len(), 0); // when freshly creaed, each/any layers are empty
+        let the_map = Map::create(64, 128).unwrap();
+        assert_eq!(the_map.grid[0][0].layers.len(), 0); // when freshly creaed, each/any layers are empty
     }
 
     #[test]
     fn can_update_layer() {
-        let mut theMap = Map::create(64, 128).unwrap(); // gotta make it mutable if we're going to allow update
-        let posX = 0;
-        let posY = 0;
-        let layerID = 0;
-        let newVal = 2;
-        let theResult = theMap.grid[posX as usize][posY as usize]
-            .set(layerID, newVal)
+        let mut the_map = Map::create(64, 128).unwrap(); // gotta make it mutable if we're going to allow update
+        let pos_x = 0;
+        let pos_y = 0;
+        let layer_id = 0;
+        let new_val = 2;
+        let _the_result = the_map.grid[pos_x as usize][pos_y as usize]
+            .set(layer_id, new_val)
             .unwrap(); // should throw with Unwrap()
         assert_eq!(
-            theMap.grid[posX as usize][posY as usize].layers[layerID as usize].val,
-            newVal
+            the_map.grid[pos_x as usize][pos_y as usize].layers[layer_id as usize].val,
+            new_val
         );
     }
 
     #[test]
     fn test_set_map_row() {
-        let mut theMap = Map::create(16, 32).unwrap();
+        let mut the_map = Map::create(16, 32).unwrap();
         let map_y = 8;
         let x_offset = 4;
-        let row_slice = theMap.get_cell_row(x_offset, map_y, 8).unwrap();
-        theMap.set_row(map_y as u16, x_offset as u8, row_slice);
+        let row_slice = the_map.get_cell_row(x_offset, map_y, 8).unwrap();
+        the_map.set_row(map_y as u16, x_offset as u8, row_slice).unwrap();
     }
 
     #[test]
     fn test_view_for_rendering() {
-        let theMap = Map::create(16, 32).unwrap();
+        let the_map = Map::create(16, 32).unwrap();
         let view_x = 2;
         let view_y = 2;
         let view_width = 4;
         let view_height = 8;
-        let view = theMap
+        let view = the_map
             .build_view(view_x, view_y, view_width, view_height)
             .unwrap();
         for h in 0..view_height {
@@ -499,25 +493,28 @@ mod tests {
 
     #[test]
     fn test_serialize_deserialize() {
-        let mut theMap = Map::create(64, 128).unwrap(); // gotta make it mutable if we're going to allow update
-        let posX = 0;
-        let posY = 0;
-        let layerID = 0;
-        let newVal = 2;
-        let theResult = theMap.grid[posX as usize][posY as usize]
-            .set(layerID, newVal)
+        let mut the_map = Map::create(64, 128).unwrap(); // gotta make it mutable if we're going to allow update
+        let pos_x = 0;
+        let pos_y = 0;
+        let layer_id = 0;
+        let new_val = 666;
+        let _the_result = the_map.grid[pos_x as usize][pos_y as usize]
+            .set(layer_id, new_val)
             .unwrap(); // should throw with Unwrap()
 
-        let mut buf = Vec::new();
-        theMap.serialize(&mut Serializer::new(&mut buf)).unwrap();
+        // serialize to buffer
+        let my_map_serialized = the_map.serialize_for_save().unwrap();
 
-        let mut de = Deserializer::new(&buf[..]);
-        let my_struct_deserialized = Map::deserialize(&mut de).unwrap();
+        // deserialize the buffer that was just serialized
+        let my_map_deserialized = Map::deserialize_for_load(&my_map_serialized).unwrap();
 
-        assert_eq!(theMap, my_struct_deserialized);
+        // should be about to just do struct equate
+        assert_eq!(the_map, my_map_deserialized);
+
+        // but just in case, we'll also check that the value we set is valid...
         assert_eq!(
-            my_struct_deserialized.grid[posX as usize][posY as usize].layers[layerID as usize].val,
-            newVal
+            my_map_deserialized.grid[pos_x as usize][pos_y as usize].layers[layer_id as usize].val,
+            new_val
         );
     }
 }
