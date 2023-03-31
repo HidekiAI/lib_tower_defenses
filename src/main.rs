@@ -5,7 +5,7 @@ use serde::Serialize;
 use std::{
     error::Error,
     fs::File,
-    io::{self, BufReader, BufWriter},
+    io::{self, BufReader, BufWriter, Read, Write},
     thread, time,
 };
 
@@ -51,36 +51,58 @@ fn render(view: Vec<i64>, cursor_x: u8, cursor_y: u8) {
     }
 }
 
-fn write_data(fname: &String, the_map: &Map) -> Result<(), Box<dyn Error>> {
+fn write_data(fname: &String, the_map: &Map) -> Result<Vec<u8>, Box<dyn Error>> {
     match the_map.serialize_for_save() {
         Ok(result_map) => {
+            println!("Serialized {} bytes, begin writing...", result_map.len());
             let file = File::create(fname)?;
             let mut writer = BufWriter::new(file);
-            let mut serializer = Serializer::new(&mut writer);
-            result_map.serialize(&mut serializer)?;
-            Ok(())
+            match writer.write_all(&result_map) {
+                Ok(()) => {
+                    let ret_result: Result<Vec<u8>, Box<dyn std::error::Error>> =
+                        Ok(result_map.to_owned());
+                    ret_result
+                }
+                Err(e) => Err::<Vec<u8>, Box<dyn std::error::Error>>(Box::new(e)),
+            }
         }
         Err(e) => {
             println!("{}", e.to_string());
-            Err("Call to Map::serialize_for_save failed".into())
+            let ret = Err("Call to Map::serialize_for_save failed".into());
+            ret
         }
     }
 }
 
 fn read_data(fname: &String) -> Result<Map, Box<dyn Error>> {
+    //let file = File::open(fname)?;
+    //let reader = BufReader::new(file);
+    //let mut deserializer = Deserializer::new(reader);
+    //let result: Map = serde::Deserialize::deserialize(&mut deserializer)?;
+    //return Ok(result);
+
     let file = File::open(fname)?;
-    let reader = BufReader::new(file);
-    let mut deserializer = Deserializer::new(reader);
-    let result: Map = serde::Deserialize::deserialize(&mut deserializer)?;
-    return Ok(result);
+    let mut reader = BufReader::new(file);
+    // read the whole file
+    let mut vec_buffer = Vec::new();
+    match reader.read_to_end(&mut vec_buffer) {
+        Ok(_buff_size) => {
+            let bin_buffer = vec_buffer.to_owned();
+            let map_from_serialized_data = Map::deserialize_for_load(&bin_buffer).unwrap();
+            Ok::<Map, Box<dyn std::error::Error>>(map_from_serialized_data)
+        }
+        Err(e) => Err::<Map, Box<dyn std::error::Error>>(Box::new(e)),
+    }
 }
 
+#[derive(PartialEq)] // need PartialEq so we can test outside the 'match{}' block via 'if' statement
 enum BreakLoopType {
     NoBreak = 0,
     QuitWithoutSave = 1,
     SaveAndExit = 2,
     ApplicationError,
 }
+
 fn main() {
     println!("\x1b[2J"); // ESC[2J = clear entire screen (CLS)
     println!("main (text view): Cursor keys, PgUp, PgDn, '[', ']', 'space', 'Q', and Esc");
@@ -92,7 +114,7 @@ fn main() {
             if m.get_width() != SAMPLE_MAP_WIDTH {
                 panic!("Invalid data");
             }
-            if m.get_height() != SAMPLE_MAP_HEIGHT + 1 {
+            if m.get_height() != SAMPLE_MAP_HEIGHT {
                 panic!("Invalid data");
             }
             Ok(m)
@@ -130,7 +152,7 @@ fn main() {
         )
         .unwrap(); // should throw with Unwrap()
     if the_map.get_cell(5, 5).unwrap().get().first().unwrap().val != 5 {
-        panic!("dATA MISMATCH");
+        panic!("DATA MISMATCH");
     }
 
     let mut break_loop = BreakLoopType::NoBreak;
@@ -296,65 +318,65 @@ fn main() {
         thread::sleep(ms);
         match break_loop {
             BreakLoopType::QuitWithoutSave => break,
-            BreakLoopType::SaveAndExit => break,
+            BreakLoopType::SaveAndExit => {
+                // TEST BEGIN: force a known value at known position and verify data was written
+                the_map
+                    .set(
+                        5,
+                        5,
+                        MapCell {
+                            layers: vec![CellLayer { id: 5, val: 5 }],
+                        },
+                    )
+                    .unwrap(); // should throw with Unwrap()
+                if the_map.get_cell(5, 5).unwrap().get().first().unwrap().val != 5 {
+                    panic!("DATA MISMATCH");
+                }
+                // TEST END
+                // update data and quit
+                write_data(&file_paths, &the_map).unwrap();
+                break;
+            }
             BreakLoopType::ApplicationError => break,
             BreakLoopType::NoBreak => (),
         }
     }
 
-    the_map
-        .set(
-            5,
-            5,
-            MapCell {
-                layers: vec![CellLayer { id: 5, val: 5 }],
-            },
-        )
-        .unwrap(); // should throw with Unwrap()
-    if the_map.get_cell(5, 5).unwrap().get().first().unwrap().val != 5 {
-        panic!("dATA MISMATCH");
+    // TEST BEGIN: force a known value at known position and verify data was written
+    if break_loop == BreakLoopType::SaveAndExit {
+        if the_map.get_cell(5, 5).unwrap().get().first().unwrap().val != 5 {
+            panic!("DATA MISMATCH");
+        }
     }
-    write_data(&file_paths, &the_map).unwrap();
-    if the_map.get_cell(5, 5).unwrap().get().first().unwrap().val != 5 {
-        panic!("dATA MISMATCH");
-    }
-
-    //let my_map_serialized = theMap.to_owned().serialize_for_save().unwrap();
-    //let mut binding = BufWriter::new(File::create("test.dat").unwrap());
-    //let mut serializer = Serializer::new(&mut binding);
-    //my_map_serialized.serialize(&mut serializer);
-    //let my_map_deserialized = Map::deserialize_for_load(&my_map_serialized).unwrap();
-    //if my_map_deserialized
-    //    .get_cell(5, 5)
-    //    .unwrap()
-    //    .get()
-    //    .first()
-    //    .unwrap()
-    //    .val
-    //    != 5
-    //{
-    //    panic!("dATA MISMATCH");
-    //}
-    //let file = File::open("test.dat").unwrap();
-    //let reader = BufReader::new(file);
-    //let mut deserializer = Deserializer::new(reader);
-    //let result: Map = serde::Deserialize::deserialize(&mut deserializer).unwrap();
-
     let test_reloaded_map = match read_data(&file_paths) {
         Ok(m) => {
             if m.get_width() != SAMPLE_MAP_WIDTH {
                 panic!("Invalid data");
             }
-            if m.get_height() != SAMPLE_MAP_HEIGHT + 1 {
+            if m.get_height() != SAMPLE_MAP_HEIGHT {
                 panic!("Invalid data");
             }
             Ok(m)
         }
-        Err(e) => Err(e.to_string()),
+        Err(io_error) => {
+            // if file exists, throw a panic!(), else assume bin data does not exist, and create a brand new map
+            println!("Error: {}", io_error.to_string());
+
+            match io_error.downcast_ref::<io::Error>() {
+                Some(io_casted_error) => match io_casted_error.kind() {
+                    io::ErrorKind::NotFound => Map::create(SAMPLE_MAP_WIDTH, SAMPLE_MAP_HEIGHT),
+                    _ => Err(io_error.to_string()),
+                },
+                _ => Err(io_error.to_string()),
+            }
+        }
     }
     .unwrap();
     let the_layer = test_reloaded_map.get_cell(5, 5).unwrap().get();
-    if the_layer.first().unwrap().val != 5 {
-        panic!("dATA MISMATCH");
+    if break_loop == BreakLoopType::SaveAndExit {
+        if the_layer.first().unwrap().val != 5 {
+            panic!("DATA MISMATCH");
+        }
     }
+    // TEST END
 }

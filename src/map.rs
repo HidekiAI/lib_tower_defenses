@@ -1,5 +1,5 @@
 extern crate serde;
-use serde::{Serialize};
+use serde::Serialize;
 use serde_derive::{Deserialize, Serialize};
 
 const MAX_MAP_WIDTH: usize = 1024;
@@ -39,7 +39,6 @@ impl CellLayer {
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-//#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MapCell {
     pub layers: Vec<CellLayer>, // this means we cannot derive Copy, use .clone()
 }
@@ -100,8 +99,6 @@ impl MapCell {
 // UpperLeft (0,0), while BottomRight is (map_width, map_height)
 // hence movement on +X moves to right and movment in +Y moves downwards.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-//#[derive(Debug, PartialEq, Clone)]
-//#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Map {
     // for optimization reasons, rather than being column-ordered grid[x][y], the grid is
     // row-ordered grid[row][column] for views
@@ -316,7 +313,8 @@ impl Map {
                 x_offset as u16 + i as u16,
                 map_y as u16,
                 row_slice[i].clone(),
-            ).unwrap();
+            )
+            .unwrap();
         }
         return Ok(());
     }
@@ -408,15 +406,53 @@ impl Map {
     // NOTE: There will NOT be any I/O here, we just transform it into serializable data format (for now, JSON)
     // and it will be up to the caller to I/O (persist) it
     pub fn serialize_for_save(self: &Self) -> Result<Vec<u8>, String> {
+        if cfg!(debug_assertions) {
+            println!(
+                "Begin Serializing...  Map width:{}, Map height:{}",
+                self.width, self.height
+            )
+        }
         let mut dest_buffer = Vec::new();
         return match self.serialize(&mut rmp_serde::Serializer::new(&mut dest_buffer)) {
-            Ok(_s) => Ok(dest_buffer),
+            Ok(_s) => {
+                if cfg!(debug_assertions) {
+                    let _cl = dest_buffer.clone();
+                    let _zzz = _cl.iter();
+                    let _xxx = _zzz.clone().take(8).to_owned();
+                    let _xxx2 = _zzz.clone().rev().take(8).rev().to_owned();
+                    let _h: Vec<&u8> = _xxx.collect();
+                    let _t: Vec<&u8> = _xxx2.collect();
+                    println!(
+                        "Serialization: {} bytes -> {:?} ... {:?} - (S)",
+                        dest_buffer.len(),
+                        _h,
+                        _t
+                    );
+                }
+
+                Ok(dest_buffer.to_owned())
+            }
             Err(e) => Err(e.to_string()),
         };
     }
 
     // NOTE: For now, because we're deserializing from JSON, we receive it as String type
     pub fn deserialize_for_load(bin_data: &Vec<u8>) -> Result<Map, String> {
+        if cfg!(debug_assertions) {
+            println!("Begin Deserializing...");
+            let _cl = bin_data.clone();
+            let _zzz = _cl.iter();
+            let _xxx = _zzz.clone().take(8).to_owned();
+            let _xxx2 = _zzz.clone().rev().take(8).rev().to_owned();
+            let _h: Vec<&u8> = _xxx.collect();
+            let _t: Vec<&u8> = _xxx2.collect();
+            println!(
+                "Deserialization: {} bytes -> {:?} ... {:?} - (D)",
+                bin_data.len(),
+                _h,
+                _t
+            );
+        }
         //let inbuf = bin_data.as_slice();
         //let mut dest_buff = rmp_serde::Deserializer::from_slice(&mut inbuf);
         //match rmp_serde::from_slice(&mut bin_data.as_slice()) {
@@ -429,7 +465,15 @@ impl Map {
         let dest_buff: Result<Map, _> = rmp_serde::from_slice(&mut inbuf);
         //let des = rmp_serde::Deserializer::new(dest_buff.unwrap());
         return match dest_buff {
-            Ok(m) => Ok(m),
+            Ok(m) => {
+                if cfg!(debug_assertions) {
+                    println!(
+                        "Deserialization: Map width:{:?}, Map height:{:?}",
+                        m.width, m.height
+                    );
+                }
+                Ok(m)
+            }
             Err(e) => Err(e.to_string()),
         };
     }
@@ -438,6 +482,13 @@ impl Map {
 #[cfg(test)]
 mod tests {
     //use core::slice::SlicePattern;
+
+    use std::{
+        fs::File,
+        io::{BufReader, BufWriter, Read, Write},
+    };
+
+    use serde::Deserializer;
 
     use super::*;
     //use serde_test::{assert_tokens, Token};
@@ -470,7 +521,9 @@ mod tests {
         let map_y = 8;
         let x_offset = 4;
         let row_slice = the_map.get_cell_row(x_offset, map_y, 8).unwrap();
-        the_map.set_row(map_y as u16, x_offset as u8, row_slice).unwrap();
+        the_map
+            .set_row(map_y as u16, x_offset as u8, row_slice)
+            .unwrap();
     }
 
     #[test]
@@ -507,6 +560,86 @@ mod tests {
 
         // deserialize the buffer that was just serialized
         let my_map_deserialized = Map::deserialize_for_load(&my_map_serialized).unwrap();
+
+        // should be about to just do struct equate
+        assert_eq!(the_map, my_map_deserialized);
+
+        // but just in case, we'll also check that the value we set is valid...
+        assert_eq!(
+            my_map_deserialized.grid[pos_x as usize][pos_y as usize].layers[layer_id as usize].val,
+            new_val
+        );
+    }
+
+    #[test]
+    fn test_serialize_deserialize_io() {
+        // lambdas (closures) for I/O
+        let write_data = |fname: &String, the_map: &Map| match the_map.serialize_for_save() {
+            Ok(result_map) => {
+                println!("Serialized {} bytes, begin writing...", result_map.len());
+                let file = File::create(fname)?;
+                let mut writer = BufWriter::new(file);
+                //let mut serializer = rmp_serde::Serializer::new(&mut writer);
+                //let _ = result_map.serialize(&mut serializer).unwrap(); // Result<(), std::error::Error>
+                match writer.write_all(&result_map) {
+                    Ok(()) => {
+                        let ret_result: Result<Vec<u8>, Box<dyn std::error::Error>> =
+                            Ok(result_map.to_owned());
+                        ret_result
+                    }
+                    Err(e) => Err::<Vec<u8>, Box<dyn std::error::Error>>(Box::new(e)),
+                }
+            }
+            Err(e) => {
+                println!("{}", e.to_string());
+                let ret = Err("Call to Map::serialize_for_save failed".into());
+                ret
+            }
+        };
+
+        let read_data = |fname: &String| {
+            let file = File::open(fname)?;
+            let mut reader = BufReader::new(file);
+            //let file = File::open(fname)?;
+            //let reader = BufReader::new(file);
+            //let mut deserializer = Deserializer::new(reader);
+            //let result: Map = serde::Deserialize::deserialize(&mut deserializer)?;
+            //return Ok(result);
+            //let mut deserializer = rmp_serde::Deserializer::new(reader);
+            //let result: Map = serde::Deserialize::deserialize(&mut deserializer)?;
+            //let ret: Result<Map, Box<dyn std::error::Error>> = Ok(result);
+
+            // read the whole file
+            let mut vec_buffer = Vec::new();
+            match reader.read_to_end(&mut vec_buffer) {
+                Ok(_buff_size) => {
+                    let bin_buffer = vec_buffer.to_owned();
+                    let map_from_serialized_data = Map::deserialize_for_load(&bin_buffer).unwrap();
+                    Ok::<Map, Box<dyn std::error::Error>>(map_from_serialized_data)
+                }
+                Err(e) => Err::<Map, Box<dyn std::error::Error>>(Box::new(e)),
+            }
+        };
+
+        let mut the_map = Map::create(64, 128).unwrap(); // gotta make it mutable if we're going to allow update
+        let pos_x = 0;
+        let pos_y = 0;
+        let layer_id = 0;
+        let new_val = 666;
+        let _the_result = the_map.grid[pos_x as usize][pos_y as usize]
+            .set(layer_id, new_val)
+            .unwrap(); // should throw with Unwrap()
+
+        let unit_test_bin_file = "./unit_test_serde.bin".to_owned();
+        // serialize to buffer
+        let my_map_serialized = write_data(&unit_test_bin_file, &the_map).unwrap();
+        let map_from_serialized_data = Map::deserialize_for_load(&my_map_serialized).unwrap();
+        assert_eq!(the_map, map_from_serialized_data);
+
+        // deserialize the buffer that was just serialized
+        let my_map_deserialized = read_data(&unit_test_bin_file).unwrap();
+
+        std::fs::remove_file(unit_test_bin_file).unwrap();
 
         // should be about to just do struct equate
         assert_eq!(the_map, my_map_deserialized);
