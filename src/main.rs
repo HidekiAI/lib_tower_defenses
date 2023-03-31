@@ -140,7 +140,6 @@ fn main() {
             .unwrap();
         if view.len() == 0 {
             break_loop = BreakLoopType::ApplicationError;
-            break;
         }
         render(view, cursor_x, cursor_y);
 
@@ -253,7 +252,9 @@ fn main() {
                                 true => 0,
                             };
                             // Note: set() should add if missing, but in this case, we're iterating through existing Layers, so it assumes it's always an update/repleace
-                            cursor_position_cell.set(layer.id, temp_cycle_the_value_on_space).unwrap();
+                            cursor_position_cell
+                                .set(layer.id, temp_cycle_the_value_on_space)
+                                .unwrap();
                         }
 
                         the_map.set(pos_x, pos_y, cursor_position_cell).unwrap();
@@ -296,10 +297,11 @@ fn main() {
         match break_loop {
             BreakLoopType::QuitWithoutSave => break,
             BreakLoopType::SaveAndExit => break,
+            BreakLoopType::ApplicationError => break,
             BreakLoopType::NoBreak => (),
-            BreakLoopType::ApplicationError => (),
         }
     }
+
     the_map
         .set(
             5,
