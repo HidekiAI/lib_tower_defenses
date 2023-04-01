@@ -5,12 +5,12 @@ use serde_derive::{Deserialize, Serialize};
 const MAX_MAP_WIDTH: usize = 1024;
 const MAX_MAP_HEIGHT: usize = 1024;
 const MAX_LAYERS_PER_CELL: usize = 16;
-type TcellValue = i64;
+pub type TCellValue = i64;
 
 #[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
 pub struct CellLayer {
     pub id: u8,
-    pub val: TcellValue, // TODO: if val becomes a complex data-model, make this private and create impl for this struct
+    pub val: TCellValue, // TODO: if val becomes a complex data-model, make this private and create impl for this struct
 }
 
 //impl Serialize for CellLayer {
@@ -26,7 +26,7 @@ pub struct CellLayer {
 //}
 
 impl CellLayer {
-    pub fn new(new_id: u8, new_val: TcellValue) -> CellLayer {
+    pub fn new(new_id: u8, new_val: TCellValue) -> CellLayer {
         CellLayer {
             id: new_id,
             val: new_val,
@@ -55,7 +55,7 @@ pub struct MapCell {
 //}
 impl MapCell {
     // add or update layer
-    pub fn set(self: &mut Self, new_id: u8, new_val: TcellValue) -> Result<(), String> {
+    pub fn set(self: &mut Self, new_id: u8, new_val: TCellValue) -> Result<(), String> {
         let mut new_layers: Vec<CellLayer> = Vec::new();
         let new_layers_iter = self.layers.iter().filter(|v| v.id != new_id).map(|v| *v);
 
@@ -166,9 +166,9 @@ impl Map {
                 MapCell {
                     layers: Vec::new(), // start with Empty (flat plain cell)
                 };
-                MAX_MAP_WIDTH
+                width as usize
             ];
-            MAX_MAP_HEIGHT  // per row
+            height as usize// per row
         ];
         let map = Map {
             width: width,
@@ -198,16 +198,16 @@ impl Map {
     }
 
     pub fn get_cell(self: &Self, map_x: u16, map_y: u16) -> Result<MapCell, String> {
-        if map_x as usize > MAX_MAP_WIDTH {
+        if map_x > self.width {
             return Err(format!(
                 "Cannot assign MapCell to position ([{}], {}) for its X position exceeds {}",
-                map_x, map_y, MAX_MAP_WIDTH
+                map_x, map_y, self.width
             ));
         }
-        if map_y as usize > MAX_MAP_HEIGHT {
+        if map_y > self.height {
             return Err(format!(
                 "Cannot assign MapCell to position ({}, [{}]) for its Y position exceeds {}",
-                map_x, map_y, MAX_MAP_HEIGHT
+                map_x, map_y, self.height
             ));
         }
         return Ok(self.grid[map_y as usize][map_x as usize].clone()); // need to clone() since we cannot copy()
@@ -263,16 +263,16 @@ impl Map {
     }
 
     pub fn set(self: &mut Self, map_x: u16, map_y: u16, cell: MapCell) -> Result<(), String> {
-        if map_x as usize > MAX_MAP_WIDTH {
+        if map_x > self.width {
             return Err(format!(
                 "Cannot assign MapCell to position ([{}], {}) for its X position exceeds {}",
-                map_x, map_y, MAX_MAP_WIDTH
+                map_x, map_y, self.width
             ));
         }
-        if map_y as usize > MAX_MAP_HEIGHT {
+        if map_y > self.height {
             return Err(format!(
                 "Cannot assign MapCell to position ({}, [{}]) for its Y position exceeds {}",
-                map_x, map_y, MAX_MAP_HEIGHT
+                map_x, map_y, self.height
             ));
         }
         self.grid[map_y as usize][map_x as usize] = cell;
@@ -296,16 +296,16 @@ impl Map {
         x_offset: u8,
         row_slice: Vec<MapCell>,
     ) -> Result<(), String> {
-        if map_y as usize > MAX_MAP_HEIGHT {
+        if map_y as usize > self.height as usize {
             return Err(format!(
                 "Cannot assign row of MapCells to position ({}, [{}]) for its Y position exceeds {}",
-                x_offset, map_y, MAX_MAP_HEIGHT
+                x_offset, map_y, self.height
             ));
         }
-        if (x_offset as usize + row_slice.len()) > MAX_MAP_WIDTH {
+        if (x_offset as usize + row_slice.len()) > self.width as usize {
             return Err(format!(
                 "Cannot assign row of MapCells to position ([{}], {}) for its X position exceeds {}",
-                x_offset, map_y, MAX_MAP_WIDTH
+                x_offset, map_y, self.width
             ));
         }
         for i in 0..(row_slice.len() - 1) {
@@ -326,37 +326,37 @@ impl Map {
         view_offset_y: u8,
         view_width: u8,
         view_height: u8,
-    ) -> Result<Vec<TcellValue>, String> {
+    ) -> Result<Vec<TCellValue>, String> {
         // Map:((5, 205)) - World:(5, 205) Cursor:(0, 0) Pos:(5, 205) Val:0 - Mouse:(1017, 618) - Keys:[PageDown]
         // thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: "Map Y 205 exceeds the boundary of max height is 200"', src\map.rs:313:75
         let map_x = self.current_x + view_offset_x as u16;
         let map_y = self.current_y + view_offset_y as u16;
-        if (map_x as usize) > MAX_MAP_WIDTH {
+        if map_x > self.width {
             return Err(format!(
                 "ViewXTop={} exceeds max width dimension {}",
-                map_x, MAX_MAP_WIDTH
+                map_x, self.width
             ));
         }
-        if (map_y as usize) > MAX_MAP_HEIGHT {
+        if map_y > self.height {
             return Err(format!(
                 "ViewYTop={} exceeds max height dimension {}",
-                map_y, MAX_MAP_HEIGHT
+                map_y, self.height
             ));
         }
-        if (map_x as usize + view_width as usize) > MAX_MAP_WIDTH {
+        if (map_x as usize + view_width as usize) > self.width as usize {
             return Err(format!(
                 "ViewXBottom={} (width={}) exceeds max width dimension {}",
                 map_x + view_width as u16,
                 view_width,
-                MAX_MAP_WIDTH
+                self.width
             ));
         }
-        if (map_y as usize + view_height as usize) > MAX_MAP_HEIGHT {
+        if (map_y as usize + view_height as usize) > self.height as usize {
             return Err(format!(
                 "ViewYBottom={} (height={}) exceeds max height dimension {}",
                 map_y + view_height as u16,
                 view_height,
-                MAX_MAP_HEIGHT
+                self.height
             ));
         }
         if view_width as u16 > self.width {
@@ -383,14 +383,14 @@ impl Map {
             return Err("Why did we not get the view height?".to_owned());
         }
 
-        let mut ret_slices_flatten: Vec<TcellValue> = Vec::new();
+        let mut ret_slices_flatten: Vec<TCellValue> = Vec::new();
         for row in slices {
-            let mut vals: Vec<TcellValue> = Vec::new();
+            let mut vals: Vec<TCellValue> = Vec::new();
             if (row.len() == 0) || (row.len() != view_width as usize) {
                 return Err("Why did we not get the row?".to_owned());
             }
             for vc in row {
-                let mut top_most: TcellValue = 0;
+                let mut top_most: TCellValue = 0;
                 if vc.layers.len() > 0 {
                     // this this be reversed iteratations where tail of the queue is the topmost?
                     top_most = vc.layers.first().unwrap().val; // we've already tested len() > 0, so safe to unwrap here
@@ -482,15 +482,11 @@ impl Map {
 #[cfg(test)]
 mod tests {
     //use core::slice::SlicePattern;
-
+    use super::*;
     use std::{
         fs::File,
         io::{BufReader, BufWriter, Read, Write},
     };
-
-    use serde::Deserializer;
-
-    use super::*;
     //use serde_test::{assert_tokens, Token};
 
     #[test]

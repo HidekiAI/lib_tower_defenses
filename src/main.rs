@@ -1,7 +1,5 @@
 include!(concat!(env!("OUT_DIR"), "/hello.rs"));
 use device_query::{DeviceQuery, DeviceState, Keycode};
-use rmp_serde::{Deserializer, Serializer};
-use serde::Serialize;
 use std::{
     error::Error,
     fs::File,
@@ -10,45 +8,66 @@ use std::{
 };
 
 // see build.rs
-use lib_tower_defense::map::{CellLayer, Map, MapCell};
+pub use lib_tower_defense::map::{CellLayer, Map, MapCell, TCellValue};
 
 const SAMPLE_VIEW_WIDTH: u8 = 80;
 const SAMPLE_VIEW_HEIGHT: u8 = 40;
 const SAMPLE_MAP_WIDTH: u16 = SAMPLE_VIEW_WIDTH as u16 * 5;
 const SAMPLE_MAP_HEIGHT: u16 = SAMPLE_VIEW_HEIGHT as u16 * 5;
+const LAYER_CHARS: [u8; 16] = *b"o.,-~:;&=!*[<#$@"; // for debuggin, replace ' ' (space) with '.' if needed
+const STR_ESCAPE: &str = "\x1b";
 
-fn render(view: Vec<i64>, cursor_x: u8, cursor_y: u8) {
-    let layer_chars = b" .,-~:;&=!*[<#$@"; // for debuggin, replace ' ' (space) with '.' if needed
-    let cursor_char = 'o';
-    let escape = "\x1b";
-    println!("{}[2J", escape); // ESC[2J = clear entire screen (CLS) because we need to clear last scroll image (also removes last cursor position)
-    println!("{}[H\n", escape); // ESC[H = move cursor back to HOME position (done per each gameloop) and add 1 line down for status
+fn render(view: Vec<i64>, cursor_x: u8, cursor_y: u8, status: String) {
+    // NOTE: In general, using ncurses is the way to go, but unfortunately,
+    // it's not available to Windows, so I'll be using ANSI cursor (XTerm, not VT100)
+    // to deal with all the trivial rendering
+    let set_cursor = |col: i32, row: i32| {
+        print!("{}[{};{}H", STR_ESCAPE, row, col); // oddly, ANSI uses row,col (Y,X) instead of (X,Y)
+    };
+    let print_at = |col: i32, row: i32, s: &str| {
+        set_cursor(col, row);
+        print!("{}", s);
+    };
+    let str_boldface = |ch: char| {
+        print!("{}[1m{}{}[0m", STR_ESCAPE, ch, STR_ESCAPE);
+    };
+    let str_reverse = |ch: char| {
+        print!("{}[7m{}{}[0m", STR_ESCAPE, ch, STR_ESCAPE);
+    };
+    let str_home = || {
+        return format!("{}[H\n", STR_ESCAPE); // ESC[H = move cursor back to HOME position (done per each gameloop) and add 1 line down for status
+    };
+    let str_cls = || {
+        return format!("{}[2J", STR_ESCAPE); // ESC[2J = clear entire screen (CLS) because we need to clear last scroll image (also removes last cursor position)
+    };
+
+    let cursor_char = format!("{}[47m {}[0m", STR_ESCAPE, STR_ESCAPE);
+    print!("{}", str_cls());
+    print_at(0, SAMPLE_VIEW_HEIGHT as i32 + 2, &status);
+    print!("{}", str_home());
+    let view_x_offset = 1;  // shift one right, so we can have a border on left edge
+    let view_y_offset = 3;  // shift 3 down so we can place stats and border at top
 
     for h in 0..SAMPLE_VIEW_HEIGHT {
         for w in 0..SAMPLE_VIEW_WIDTH {
-            let i = (h as usize * SAMPLE_VIEW_WIDTH as usize) + w as usize; // NOTE: will get overflow if you do not explicitly cast here
+        set_cursor((w + view_x_offset) as i32, (h + view_y_offset) as i32);
+            let flattened_view_index = (h as usize * SAMPLE_VIEW_WIDTH as usize) + w as usize; // NOTE: will get overflow if you do not explicitly cast here
 
             // for now, just assume the val data is the index to the array...
-            let v = view[i] as usize;
-            //unsafe {
-            //    let ch: c_int = layer_chars[v].into();
-            //    // using C lib putchar() for now (performance and conviniences)
-            //    libc::putchar(ch);
-            //}
-            let ch: char = layer_chars[v] as char;
+            let v = view[flattened_view_index] as usize;
+            let ch: char = LAYER_CHARS[v % LAYER_CHARS.len()] as char;
             if h == cursor_y && w == cursor_x {
                 if ch == ' ' {
                     print!("{}", cursor_char);
                 } else {
-                    // bold
-                    print!("{}[1m{}{}[0m", escape, ch, escape);
+                    str_reverse(ch);
                 }
             } else {
                 print!("{}", ch);
             }
         }
-        println!("");
     }
+    println!("");
 }
 
 fn write_data(fname: &String, the_map: &Map) -> Result<Vec<u8>, Box<dyn Error>> {
@@ -104,10 +123,10 @@ enum BreakLoopType {
 }
 
 fn main() {
-    println!("\x1b[2J"); // ESC[2J = clear entire screen (CLS)
-    println!("main (text view): Cursor keys, PgUp, PgDn, '[', ']', 'space', 'Q', and Esc");
+    print!("\x1b[2J"); // ESC[2J = clear entire screen (CLS)
+    print!("main (text view): Cursor keys, PgUp, PgDn, '[', ']', 'space', 'Q', and Esc");
     //let ms = time::Duration::from_millis(300); // 1/3 second
-    let ms = time::Duration::from_millis(3); // 1/3 second
+    let ms = time::Duration::from_millis(50);
     let file_paths = "./test.save.bin".to_owned();
     let mut the_map = match read_data(&file_paths) {
         Ok(m) => {
@@ -142,17 +161,16 @@ fn main() {
     let move_step_y: u8 = 5;
     let device_state = DeviceState::new();
 
-    let _the_result = the_map
-        .set(
-            5,
-            5,
-            MapCell {
-                layers: vec![CellLayer { id: 5, val: 5 }],
-            },
-        )
-        .unwrap(); // should throw with Unwrap()
-    if the_map.get_cell(5, 5).unwrap().get().first().unwrap().val != 5 {
-        panic!("DATA MISMATCH");
+    let cell = MapCell {
+        layers: vec![CellLayer {
+            id: 1,
+            val: 'x' as lib_tower_defense::map::TCellValue,
+        }],
+    };
+    for y in 0..32 {
+        for x in 0..32 {
+            the_map.set(x, y, cell.clone()).unwrap();
+        }
     }
 
     let mut break_loop = BreakLoopType::NoBreak;
@@ -163,7 +181,6 @@ fn main() {
         if view.len() == 0 {
             break_loop = BreakLoopType::ApplicationError;
         }
-        render(view, cursor_x, cursor_y);
 
         let mouse = device_state.get_mouse();
         let keys: Vec<Keycode> = device_state.get_keys();
@@ -269,10 +286,11 @@ fn main() {
                             };
 
                         for layer in cursor_position_cell.layers.clone() {
-                            let temp_cycle_the_value_on_space = match layer.val + 1 > 8 {
-                                false => layer.val + 1,
-                                true => 0,
-                            };
+                            let temp_cycle_the_value_on_space =
+                                match (layer.val + 1) as usize > LAYER_CHARS.len() {
+                                    false => layer.val + 1,
+                                    true => 0,
+                                };
                             // Note: set() should add if missing, but in this case, we're iterating through existing Layers, so it assumes it's always an update/repleace
                             cursor_position_cell
                                 .set(layer.id, temp_cycle_the_value_on_space)
@@ -302,7 +320,8 @@ fn main() {
             keys_input.push_str(&k.to_string());
         }
         keys_input.push_str("]");
-        println!(
+        let status =
+        format!(
             "\x1b[HMap:{:?} - World:({}, {}) Cursor:({}, {}) Pos:({}, {}) Val:{} - Mouse:{:?} - Keys:{}                    ",
             the_map.get_upper_left(),
             view_x,
@@ -319,20 +338,6 @@ fn main() {
         match break_loop {
             BreakLoopType::QuitWithoutSave => break,
             BreakLoopType::SaveAndExit => {
-                // TEST BEGIN: force a known value at known position and verify data was written
-                the_map
-                    .set(
-                        5,
-                        5,
-                        MapCell {
-                            layers: vec![CellLayer { id: 5, val: 5 }],
-                        },
-                    )
-                    .unwrap(); // should throw with Unwrap()
-                if the_map.get_cell(5, 5).unwrap().get().first().unwrap().val != 5 {
-                    panic!("DATA MISMATCH");
-                }
-                // TEST END
                 // update data and quit
                 write_data(&file_paths, &the_map).unwrap();
                 break;
@@ -340,43 +345,7 @@ fn main() {
             BreakLoopType::ApplicationError => break,
             BreakLoopType::NoBreak => (),
         }
+        render(view, cursor_x, cursor_y, status);
     }
-
-    // TEST BEGIN: force a known value at known position and verify data was written
-    if break_loop == BreakLoopType::SaveAndExit {
-        if the_map.get_cell(5, 5).unwrap().get().first().unwrap().val != 5 {
-            panic!("DATA MISMATCH");
-        }
-    }
-    let test_reloaded_map = match read_data(&file_paths) {
-        Ok(m) => {
-            if m.get_width() != SAMPLE_MAP_WIDTH {
-                panic!("Invalid data");
-            }
-            if m.get_height() != SAMPLE_MAP_HEIGHT {
-                panic!("Invalid data");
-            }
-            Ok(m)
-        }
-        Err(io_error) => {
-            // if file exists, throw a panic!(), else assume bin data does not exist, and create a brand new map
-            println!("Error: {}", io_error.to_string());
-
-            match io_error.downcast_ref::<io::Error>() {
-                Some(io_casted_error) => match io_casted_error.kind() {
-                    io::ErrorKind::NotFound => Map::create(SAMPLE_MAP_WIDTH, SAMPLE_MAP_HEIGHT),
-                    _ => Err(io_error.to_string()),
-                },
-                _ => Err(io_error.to_string()),
-            }
-        }
-    }
-    .unwrap();
-    let the_layer = test_reloaded_map.get_cell(5, 5).unwrap().get();
-    if break_loop == BreakLoopType::SaveAndExit {
-        if the_layer.first().unwrap().val != 5 {
-            panic!("DATA MISMATCH");
-        }
-    }
-    // TEST END
+    
 }
