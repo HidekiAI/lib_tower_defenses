@@ -372,8 +372,10 @@ impl Map {
             ));
         }
         let mut slices: Vec<Vec<MapCell>> = Vec::new();
-        for _ in 0..view_height {
-            let per_row_slice = self.get_cell_row(map_x, map_y, view_width).unwrap();
+        for h_index in 0..view_height {
+            let per_row_slice = self
+                .get_cell_row(map_x, map_y + h_index as u16, view_width)
+                .unwrap();
             if per_row_slice.len() != view_width as usize {
                 return Err("Why did we not get the row?".to_owned());
             }
@@ -502,11 +504,11 @@ mod tests {
         let pos_y = 0;
         let layer_id = 0;
         let new_val = 2;
-        let _the_result = the_map.grid[pos_x as usize][pos_y as usize]
+        let _the_result = the_map.grid[pos_y as usize][pos_x as usize]
             .set(layer_id, new_val)
             .unwrap(); // should throw with Unwrap()
         assert_eq!(
-            the_map.grid[pos_x as usize][pos_y as usize].layers[layer_id as usize].val,
+            the_map.grid[pos_y as usize][pos_x as usize].layers[layer_id as usize].val,
             new_val
         );
     }
@@ -543,11 +545,11 @@ mod tests {
     #[test]
     fn test_serialize_deserialize() {
         let mut the_map = Map::create(64, 128).unwrap(); // gotta make it mutable if we're going to allow update
-        let pos_x = 0;
-        let pos_y = 0;
+        let pos_x = 3;
+        let pos_y = 5;
         let layer_id = 0;
         let new_val = 666;
-        let _the_result = the_map.grid[pos_x as usize][pos_y as usize]
+        let _the_result = the_map.grid[pos_y as usize][pos_x as usize]
             .set(layer_id, new_val)
             .unwrap(); // should throw with Unwrap()
 
@@ -562,7 +564,7 @@ mod tests {
 
         // but just in case, we'll also check that the value we set is valid...
         assert_eq!(
-            my_map_deserialized.grid[pos_x as usize][pos_y as usize].layers[layer_id as usize].val,
+            my_map_deserialized.grid[pos_y as usize][pos_x as usize].layers[layer_id as usize].val,
             new_val
         );
     }
@@ -618,11 +620,11 @@ mod tests {
         };
 
         let mut the_map = Map::create(64, 128).unwrap(); // gotta make it mutable if we're going to allow update
-        let pos_x = 0;
-        let pos_y = 0;
+        let pos_x = 3;
+        let pos_y = 5;
         let layer_id = 0;
         let new_val = 666;
-        let _the_result = the_map.grid[pos_x as usize][pos_y as usize]
+        let _the_result = the_map.grid[pos_y as usize][pos_x as usize]
             .set(layer_id, new_val)
             .unwrap(); // should throw with Unwrap()
 
@@ -642,7 +644,7 @@ mod tests {
 
         // but just in case, we'll also check that the value we set is valid...
         assert_eq!(
-            my_map_deserialized.grid[pos_x as usize][pos_y as usize].layers[layer_id as usize].val,
+            my_map_deserialized.grid[pos_y as usize][pos_x as usize].layers[layer_id as usize].val,
             new_val
         );
     }

@@ -1,73 +1,237 @@
-include!(concat!(env!("OUT_DIR"), "/hello.rs"));
+include!(concat!(env!("OUT_DIR"), "/hello.rs")); // see build.rs
+                                                 //use crate::io::stdin;
 use device_query::{DeviceQuery, DeviceState, Keycode};
+use std::io::stdin;
 use std::{
     error::Error,
     fs::File,
     io::{self, BufReader, BufWriter, Read, Write},
+    process::{Command, Output},
     thread, time,
 };
+use terminal_size::{terminal_size, Height, Width}; // need this to clear screen logically, since we cannot call 'tput cols' and 'tput lines'
 
-// see build.rs
 pub use lib_tower_defense::map::{CellLayer, Map, MapCell, TCellValue};
 
 const SAMPLE_VIEW_WIDTH: u8 = 80;
 const SAMPLE_VIEW_HEIGHT: u8 = 40;
 const SAMPLE_MAP_WIDTH: u16 = SAMPLE_VIEW_WIDTH as u16 * 5;
 const SAMPLE_MAP_HEIGHT: u16 = SAMPLE_VIEW_HEIGHT as u16 * 5;
-const LAYER_CHARS: [u8; 16] = *b"o.,-~:;&=!*[<#$@"; // for debuggin, replace ' ' (space) with '.' if needed
+const LAYER_CHARS: [u8; 16] = *b" .,-~:;&=!*[#QW@"; // for debuggin, replace ' ' (space) with '.' if needed
 const STR_ESCAPE: &str = "\x1b";
+
+// NOTE: Probably not a useful function because on Windows, it defaults to PowerShell and so doing commands like 'ls -ltArh'
+// will not work.  Also, we cannot tell if bash.exe is installed on the Windows,  and even so, passing as command with args:
+// "bash -c 'ls -ltArh'" will not work (PowerShell will never be able to locate bash.exe)
+// also, recommend doing the '#[cfg(target_os = "linux")]' and '#[cfg(not(target_os = "linux"))]' to
+// conditionally call one route for linux/bash and other for powershell...
+fn do_process(str_cmd: &str) -> Result<(String, String), String> {
+    //let output = Command::new(str_cmd[0])
+    //    .arg(str_cmd[1])
+    //    .output()
+    //    .expect("Failed to execute command ");
+    //let result = String::from_utf8(output.stdout).unwrap();
+    //println!("Result: {}", result);
+
+    //let str_cmd : &str= "tput cols";
+    let mut cmd = Command::new(str_cmd);
+    match cmd.output() {
+        Ok(Output {
+            stderr: _cmd_errors,
+            stdout: cmd_outputs,
+            status: exit_status,
+        }) => {
+            if exit_status.success() {
+                //println!("{:?}", out);
+                match String::from_utf8(cmd_outputs.clone()) {
+                    Ok(res) => {
+                        let ss = format!("{:?}", cmd_outputs);
+                        return Ok((res, ss));
+                    }
+                    Err(why) => Err(format!("error converting result to utf8: {}", why)),
+                }
+            } else {
+                Err(format!("error executing command '{}'", str_cmd))
+            }
+        }
+        Err(why) => Err(format!("error executing command '{}': {}", str_cmd, why)),
+    }
+}
+fn get_term_dimension() -> (i32, i32) {
+    //#[cfg(target_os = "linux")] // 'bash -c' won't work on Windows
+    //let (cols, _) = do_process("bash -c '/usr/bin/tput cols'").unwrap();
+    //let (lines, _) = do_process("bash -c '/usr/bin/tput lines'").unwrap();
+    //let i_cols = cols.trim().to_uppercase().parse::<i32>().unwrap();
+    //let i_lines = lines.trim().to_uppercase().parse::<i32>().unwrap();
+
+    let size = terminal_size();
+    if let Some((Width(w), Height(h))) = size {
+        println!("Your terminal is {} cols wide and {} lines tall", w, h);
+        return (w as i32, h as i32);
+    } else {
+        println!("Unable to get terminal size");
+        return (SAMPLE_VIEW_WIDTH as i32, SAMPLE_VIEW_HEIGHT as i32);
+    }
+}
+fn make_line_ch(line_width: u8, line_char: char) -> String {
+    return std::iter::repeat(line_char)
+        .take(line_width as usize)
+        .collect::<String>();
+}
+fn make_line_str(line_width: u8, line_char: String) -> String {
+    return std::iter::repeat(line_char)
+        .take(line_width as usize)
+        .collect::<String>();
+}
+fn make_line_from_slice(char_line: &[char]) -> String {
+    return String::from_utf8(char_line.iter().map(|&x| x as u8).collect()).unwrap();
+}
+fn home_screen() -> () {
+    //let str_home = || {
+    //    return format!("{}[H", STR_ESCAPE); // ESC[H = move cursor back to HOME position (done per each gameloop) and add 1 line down for status
+    //};
+    print!("{}[H", STR_ESCAPE); // ESC[H = move cursor back to HOME position (done per each gameloop) and add 1 line down for status
+}
+// NOTE: the '[2J' mode forces screen to scroll down, so do NOT use it in a loop
+fn clear_screen() -> () {
+    //let str_cls = || {
+    //    return format!("{}[2J", STR_ESCAPE); // ESC[2J = clear entire screen (CLS) because we need to clear last scroll image (also removes last cursor position)
+    //};
+
+    print!("{}[2J", STR_ESCAPE); // ESC[2J = clear entire screen (CLS) because we need to clear last scroll image (also removes last cursor position)
+    home_screen();
+    let (cols, lines) = get_term_dimension();
+    let clear_char = format!(
+        "{}[48;5;235m {}[0m", // dark-grey (not black, so that it's easier to debug)
+        STR_ESCAPE, STR_ESCAPE
+    );
+    let blank_line_str = make_line_str(cols as u8, clear_char);
+
+    let blank_line = make_line_ch(cols as u8, ' ');
+    //let debug_line = make_line(cols as u8 - 2, '.');
+    for _ in 0..lines {
+        println!("{}", blank_line_str)
+        //println!("^{}$", debug_line)
+    }
+    home_screen();
+}
 
 fn render(view: Vec<i64>, cursor_x: u8, cursor_y: u8, status: String) {
     // NOTE: In general, using ncurses is the way to go, but unfortunately,
     // it's not available to Windows, so I'll be using ANSI cursor (XTerm, not VT100)
     // to deal with all the trivial rendering
-    let set_cursor = |col: i32, row: i32| {
-        print!("{}[{};{}H", STR_ESCAPE, row, col); // oddly, ANSI uses row,col (Y,X) instead of (X,Y)
+    let set_cursor = |col_1based: i32, row_1based: i32| {
+        // NOTE: both row and col are 1-based
+        print!("{}[{};{}H", STR_ESCAPE, row_1based, col_1based); // oddly, ANSI uses row,col (Y,X) instead of (X,Y)
     };
-    let print_at = |col: i32, row: i32, s: &str| {
+    let print_at = |col: i32, row: i32, s: &String| {
         set_cursor(col, row);
         print!("{}", s);
     };
-    let str_boldface = |ch: char| {
-        print!("{}[1m{}{}[0m", STR_ESCAPE, ch, STR_ESCAPE);
+    let print_ch_at = |col: i32, row: i32, ch: &char| {
+        set_cursor(col, row);
+        print!("{}", ch);
     };
-    let str_reverse = |ch: char| {
-        print!("{}[7m{}{}[0m", STR_ESCAPE, ch, STR_ESCAPE);
+    let _str_boldface = |ch: char| -> String {
+        return format!("{}[1m{}{}[0m", STR_ESCAPE, ch, STR_ESCAPE);
     };
-    let str_home = || {
-        return format!("{}[H\n", STR_ESCAPE); // ESC[H = move cursor back to HOME position (done per each gameloop) and add 1 line down for status
-    };
-    let str_cls = || {
-        return format!("{}[2J", STR_ESCAPE); // ESC[2J = clear entire screen (CLS) because we need to clear last scroll image (also removes last cursor position)
+    let str_reverse = |ch: char| -> String {
+        return format!("{}[7m{}{}[0m", STR_ESCAPE, ch, STR_ESCAPE);
     };
 
-    let cursor_char = format!("{}[47m {}[0m", STR_ESCAPE, STR_ESCAPE);
-    print!("{}", str_cls());
-    print_at(0, SAMPLE_VIEW_HEIGHT as i32 + 2, &status);
-    print!("{}", str_home());
-    let view_x_offset = 1;  // shift one right, so we can have a border on left edge
-    let view_y_offset = 3;  // shift 3 down so we can place stats and border at top
+    let clear_screen_with_char = |w: i32, h: i32, clchar: char, border_chars_lrtb: [char; 4]| {
+        let chline: [char; SAMPLE_VIEW_WIDTH as usize] = [clchar; SAMPLE_VIEW_WIDTH as usize];
+        let clear_line_for_view = make_line_from_slice(&chline);
+        let clear_line = make_line_from_slice(&chline);
+        let top_line =
+            make_line_from_slice(&[border_chars_lrtb[2]; SAMPLE_VIEW_WIDTH as usize + 2]); // +2 to adjust for left+right borders
+        let bot_line =
+            make_line_from_slice(&[border_chars_lrtb[3]; SAMPLE_VIEW_WIDTH as usize + 2]); // +2 to adjust for left+right borders
+                                                                                           //clear_screen(); // first, clear the entire xterm
+        home_screen();
+        for _ in 0..SAMPLE_VIEW_HEIGHT {
+            println!(
+                "{}{}{}",
+                border_chars_lrtb[0], clear_line, border_chars_lrtb[1]
+            );
+        }
+        home_screen();
+        println!("{}", top_line);
 
-    for h in 0..SAMPLE_VIEW_HEIGHT {
-        for w in 0..SAMPLE_VIEW_WIDTH {
-        set_cursor((w + view_x_offset) as i32, (h + view_y_offset) as i32);
-            let flattened_view_index = (h as usize * SAMPLE_VIEW_WIDTH as usize) + w as usize; // NOTE: will get overflow if you do not explicitly cast here
+        println!("{}", bot_line);
+    };
 
+    //┌───┐
+    //│   │
+    //└───┘
+    //'┌', '─', '┐', '│', '└', '┘'
+    clear_screen_with_char(
+        SAMPLE_VIEW_WIDTH as i32,
+        SAMPLE_VIEW_HEIGHT as i32,
+        ' ',
+        ['│', '│', '─', '─'],
+    );
+
+    // see colorization chart on https://en.wikipedia.org/wiki/ANSI_escape_code
+    let cursor_char = format!("{}[47m^{}[0m", STR_ESCAPE, STR_ESCAPE);
+    print_at(0, SAMPLE_VIEW_HEIGHT as i32 + 4, &status);
+    home_screen();
+    let view_x_offset = 1; // shift one right, so we can have a border on left edge
+    let view_y_offset = 1; // shift 3 down so we can place stats and border at top
+
+    for h_index in 0..SAMPLE_VIEW_HEIGHT {
+        for w_index in 0..SAMPLE_VIEW_WIDTH {
+            let flattened_view_index =
+                (h_index as usize * SAMPLE_VIEW_WIDTH as usize) + w_index as usize; // NOTE: will get overflow if you do not explicitly cast here
+            let val_from_view = view[flattened_view_index] as usize;
+            let ch: char = LAYER_CHARS[val_from_view % LAYER_CHARS.len()] as char;
+
+            // NOTE: cursor postion is 1-based
+            let view_render_y = h_index + 1;
+            let view_render_x = w_index + 1;
             // for now, just assume the val data is the index to the array...
-            let v = view[flattened_view_index] as usize;
-            let ch: char = LAYER_CHARS[v % LAYER_CHARS.len()] as char;
-            if h == cursor_y && w == cursor_x {
-                if ch == ' ' {
-                    print!("{}", cursor_char);
+            if view_render_y == cursor_y && view_render_x == cursor_x {
+                if val_from_view == 0 {
+                    print_at(
+                        (view_render_x + view_x_offset) as i32,
+                        (view_render_y + view_y_offset) as i32,
+                        &cursor_char,
+                    );
                 } else {
-                    str_reverse(ch);
+                    print_at(
+                        (view_render_x + view_x_offset) as i32,
+                        (view_render_y + view_y_offset) as i32,
+                        &str_reverse(ch),
+                    );
                 }
+            } else if val_from_view == 0 {
+                let dark_grey = format!(
+                    "{}[48;5;234m {}[0m", // dark-grey (not black, so that it's easier to debug)
+                    STR_ESCAPE, STR_ESCAPE
+                );
+                print_at(
+                    (view_render_x + view_x_offset) as i32,
+                    (view_render_y + view_y_offset) as i32,
+                    &dark_grey,
+                );
             } else {
-                print!("{}", ch);
+                let ch_as_int_mod_9 = format!(
+                    "{}[48;5;{}m{}{}[0m", //
+                    STR_ESCAPE,
+                    (val_from_view as i32 + view_render_y as i32) % 230,
+                    ch,
+                    STR_ESCAPE
+                );
+                print_at(
+                    (view_render_x + view_x_offset) as i32,
+                    (view_render_y + view_y_offset) as i32,
+                    &ch_as_int_mod_9,
+                );
             }
         }
     }
-    println!("");
+    //println!("");
+    home_screen();
 }
 
 fn write_data(fname: &String, the_map: &Map) -> Result<Vec<u8>, Box<dyn Error>> {
@@ -123,8 +287,7 @@ enum BreakLoopType {
 }
 
 fn main() {
-    print!("\x1b[2J"); // ESC[2J = clear entire screen (CLS)
-    print!("main (text view): Cursor keys, PgUp, PgDn, '[', ']', 'space', 'Q', and Esc");
+    clear_screen();
     //let ms = time::Duration::from_millis(300); // 1/3 second
     let ms = time::Duration::from_millis(50);
     let file_paths = "./test.save.bin".to_owned();
@@ -161,17 +324,20 @@ fn main() {
     let move_step_y: u8 = 5;
     let device_state = DeviceState::new();
 
-    let cell = MapCell {
-        layers: vec![CellLayer {
-            id: 1,
-            val: 'x' as lib_tower_defense::map::TCellValue,
-        }],
-    };
-    for y in 0..32 {
-        for x in 0..32 {
-            the_map.set(x, y, cell.clone()).unwrap();
-        }
-    }
+    //let cell = MapCell {
+    //    layers: vec![CellLayer {
+    //        id: 1,
+    //        val: 'x' as lib_tower_defense::map::TCellValue,
+    //    }],
+    //};
+    //for x in 0..32 {
+    //    the_map.set(x, 0, cell.clone()).unwrap();
+    //    the_map.set(x, 32, cell.clone()).unwrap();
+    //}
+    //for y in 1..31 {
+    //    the_map.set(0, y, cell.clone()).unwrap();
+    //    the_map.set(32, y, cell.clone()).unwrap();
+    //}
 
     let mut break_loop = BreakLoopType::NoBreak;
     loop {
@@ -320,9 +486,8 @@ fn main() {
             keys_input.push_str(&k.to_string());
         }
         keys_input.push_str("]");
-        let status =
-        format!(
-            "\x1b[HMap:{:?} - World:({}, {}) Cursor:({}, {}) Pos:({}, {}) Val:{} - Mouse:{:?} - Keys:{}                    ",
+        let status = format!(
+            "Map:{:?} - World:({}, {}) Cursor:({}, {}) Pos:({}, {}) Val:{} - Mouse:{:?} - Keys:{}\nCursor keys, PgUp, PgDn, '[', ']', 'space', 'Q', and Esc",
             the_map.get_upper_left(),
             view_x,
             view_y,
@@ -331,7 +496,8 @@ fn main() {
             view_x + cursor_x as u16,
             view_y + cursor_y as u16,
             the_val,
-            mouse.coords, keys_input
+            mouse.coords,
+            keys_input
         );
         // sleep mainly so that we can yield the app and let other processes run...
         thread::sleep(ms);
@@ -347,5 +513,29 @@ fn main() {
         }
         render(view, cursor_x, cursor_y, status);
     }
-    
+    // need to flush, or else all the key input will queue up on exit of the app
+    #[cfg(not(target_os = "linux"))]
+    // the Windows/Mac way...
+    //io::stdin().flush();
+    std::io::stdin().read_line(&mut String::new()).unwrap();
+    #[cfg(target_os = "linux")]
+    unsafe {
+        // the Linux way...
+        libc::fflush(stdin());
+    }
+    //if cfg!(target_os = "windows") {
+    //    //#[cfg(not(target_os = "linux"))]
+    //    #[cfg(target_os = "windows")]
+    //    io::stdin().flush();
+    //} else if cfg!(target_os = "macos") {
+    //    //#[cfg(not(target_os = "linux"))]
+    //    #[cfg(target_os = "macos")]
+    //    io::stdin().flush();
+    //} else if cfg!(target_os = "linux") {
+    //    #[cfg(target_os = "linux")]
+    //    unsafe {
+    //        // the Linux way...
+    //        libc::fflush(libc::stdin());
+    //    }
+    //}
 }
