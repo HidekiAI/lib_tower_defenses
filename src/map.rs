@@ -2,15 +2,19 @@ extern crate serde;
 use serde::Serialize;
 use serde_derive::{Deserialize, Serialize};
 
+use crate::entity_system::*;
+use crate::resource_system::Resource;
+
 const MAX_MAP_WIDTH: usize = 1024;
 const MAX_MAP_HEIGHT: usize = 1024;
 const MAX_LAYERS_PER_CELL: usize = 16;
-pub type TCellValue = i64;
+
+type TCellID = u8; // private
 
 #[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
 pub struct CellLayer {
-    pub id: u8,
-    pub val: TCellValue, // TODO: if val becomes a complex data-model, make this private and create impl for this struct
+    pub id: TCellID,
+    pub entity: TEntityID,
 }
 
 //impl Serialize for CellLayer {
@@ -26,10 +30,10 @@ pub struct CellLayer {
 //}
 
 impl CellLayer {
-    pub fn new(new_id: u8, new_val: TCellValue) -> CellLayer {
+    pub fn new(new_id: TCellID, new_val: TEntityID) -> CellLayer {
         CellLayer {
             id: new_id,
-            val: new_val,
+            entity: new_val,
         }
     }
     //pub fn save(self: &Self) -> Result<String, String> {
@@ -55,7 +59,7 @@ pub struct MapCell {
 //}
 impl MapCell {
     // add or update layer
-    pub fn set(self: &mut Self, new_id: u8, new_val: TCellValue) -> Result<(), String> {
+    pub fn set(self: &mut Self, new_id: u8, new_val: TEntityID) -> Result<(), String> {
         let mut new_layers: Vec<CellLayer> = Vec::new();
         let new_layers_iter = self.layers.iter().filter(|v| v.id != new_id).map(|v| *v);
 
@@ -98,6 +102,7 @@ impl MapCell {
 
 // UpperLeft (0,0), while BottomRight is (map_width, map_height)
 // hence movement on +X moves to right and movment in +Y moves downwards.
+//#[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Map {
     // for optimization reasons, rather than being column-ordered grid[x][y], the grid is
@@ -326,7 +331,7 @@ impl Map {
         view_offset_y: u8,
         view_width: u8,
         view_height: u8,
-    ) -> Result<Vec<TCellValue>, String> {
+    ) -> Result<Vec<Option<TEntityID>>, String> {
         // Map:((5, 205)) - World:(5, 205) Cursor:(0, 0) Pos:(5, 205) Val:0 - Mouse:(1017, 618) - Keys:[PageDown]
         // thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: "Map Y 205 exceeds the boundary of max height is 200"', src\map.rs:313:75
         let map_x = self.current_x + view_offset_x as u16;
@@ -385,17 +390,18 @@ impl Map {
             return Err("Why did we not get the view height?".to_owned());
         }
 
-        let mut ret_slices_flatten: Vec<TCellValue> = Vec::new();
+        let mut ret_slices_flatten: Vec<Option<TEntityID>> = Vec::new();
         for row in slices {
-            let mut vals: Vec<TCellValue> = Vec::new();
+            let mut vals: Vec<Option<TEntityID>> = Vec::new();
             if (row.len() == 0) || (row.len() != view_width as usize) {
                 return Err("Why did we not get the row?".to_owned());
             }
             for vc in row {
-                let mut top_most: TCellValue = 0;
+                let mut top_most: Option<TEntityID> = None;
                 if vc.layers.len() > 0 {
                     // this this be reversed iteratations where tail of the queue is the topmost?
-                    top_most = vc.layers.first().unwrap().val; // we've already tested len() > 0, so safe to unwrap here
+                    // TODO: Sort by layer-weights and make the lightest weight the topmost instead of pulling the first()
+                    top_most = Some(vc.layers.first().unwrap().entity); // we've already tested len() > 0, so safe to unwrap here
                 }
                 vals.push(top_most);
             }
@@ -479,16 +485,23 @@ impl Map {
             Err(e) => Err(e.to_string()),
         };
     }
+
+    pub fn auto_generate(self: &Self) -> Result<Map, String> {
+        // TODO: based on map dimension, update grid[][]
+        return Err("CODE ME!".to_owned());
+    }
+
+    pub fn load(file_path: &String) -> Result<Map, String> {
+        return Err("CODE ME!".to_owned());
+    }
+    pub fn save(self: &Self, file_path: &String) -> Result<Map, String> {
+        return Err("CODE ME!".to_owned());
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    //use core::slice::SlicePattern;
     use super::*;
-    use std::{
-        fs::File,
-        io::{BufReader, BufWriter, Read, Write},
-    };
     //use serde_test::{assert_tokens, Token};
 
     #[test]
@@ -503,13 +516,13 @@ mod tests {
         let pos_x = 0;
         let pos_y = 0;
         let layer_id = 0;
-        let new_val = 2;
+        let new_entity_id = 5u16; // faking call to entity_system::add_entity(0, 0).unwrap();
         let _the_result = the_map.grid[pos_y as usize][pos_x as usize]
-            .set(layer_id, new_val)
+            .set(layer_id, new_entity_id)
             .unwrap(); // should throw with Unwrap()
         assert_eq!(
-            the_map.grid[pos_y as usize][pos_x as usize].layers[layer_id as usize].val,
-            new_val
+            the_map.grid[pos_y as usize][pos_x as usize].layers[layer_id as usize].entity,
+            new_entity_id
         );
     }
 
@@ -526,7 +539,9 @@ mod tests {
 
     #[test]
     fn test_view_for_rendering() {
-        let the_map = Map::create(16, 32).unwrap();
+        let map_width = 16;
+        let map_height = 32;
+        let the_map = Map::create(map_width, map_height).unwrap();
         let view_x = 2;
         let view_y = 2;
         let view_width = 4;
@@ -534,9 +549,17 @@ mod tests {
         let view = the_map
             .build_view(view_x, view_y, view_width, view_height)
             .unwrap();
-        for h in 0..view_height {
-            for w in 0..view_width {
-                print!("{}", view[((h * view_width) + w) as usize]);
+        assert_ne!(0, view.len());
+        for h in 0..view_height as u16 {
+            for w in 0..view_width as u16 {
+                let i = ((h * view_width as u16) + w) as usize;
+                print!(
+                    "{}",
+                    match view[i] {
+                        Some(v) => v,
+                        None => 0,
+                    }
+                );
             }
             println!("");
         }
@@ -564,7 +587,8 @@ mod tests {
 
         // but just in case, we'll also check that the value we set is valid...
         assert_eq!(
-            my_map_deserialized.grid[pos_y as usize][pos_x as usize].layers[layer_id as usize].val,
+            my_map_deserialized.grid[pos_y as usize][pos_x as usize].layers[layer_id as usize]
+                .entity,
             new_val
         );
     }
@@ -572,53 +596,58 @@ mod tests {
     #[test]
     fn test_serialize_deserialize_io() {
         // lambdas (closures) for I/O
-        let write_data = |fname: &String, the_map: &Map| match the_map.serialize_for_save() {
-            Ok(result_map) => {
-                println!("Serialized {} bytes, begin writing...", result_map.len());
-                let file = File::create(fname)?;
-                let mut writer = BufWriter::new(file);
-                //let mut serializer = rmp_serde::Serializer::new(&mut writer);
-                //let _ = result_map.serialize(&mut serializer).unwrap(); // Result<(), std::error::Error>
-                match writer.write_all(&result_map) {
-                    Ok(()) => {
-                        let ret_result: Result<Vec<u8>, Box<dyn std::error::Error>> =
-                            Ok(result_map.to_owned());
-                        ret_result
-                    }
-                    Err(e) => Err::<Vec<u8>, Box<dyn std::error::Error>>(Box::new(e)),
-                }
-            }
+        //let write_data = |fname: &String, the_map: &Map| match the_map.serialize_for_save() {
+        //    Ok(result_map) => {
+        //        println!("Serialized {} bytes, begin writing...", result_map.len());
+        //        let file = File::create(fname)?;
+        //        let mut writer = BufWriter::new(file);
+        //        //let mut serializer = rmp_serde::Serializer::new(&mut writer);
+        //        //let _ = result_map.serialize(&mut serializer).unwrap(); // Result<(), std::error::Error>
+        //        match writer.write_all(&result_map) {
+        //            Ok(()) => {
+        //                let ret_result: Result<Vec<u8>, Box<dyn std::error::Error>> =
+        //                    Ok(result_map.to_owned());
+        //                ret_result
+        //            }
+        //            Err(e) => Err::<Vec<u8>, Box<dyn std::error::Error>>(Box::new(e)),
+        //        }
+        //    }
+        //    Err(e) => {
+        //        println!("{}", e.to_string());
+        //        let ret = Err("Call to Map::serialize_for_save failed".into());
+        //        ret
+        //    }
+        //};
+        //let read_data = |fname: &String| {
+        //    let file = File::open(fname)?;
+        //    let mut reader = BufReader::new(file);
+        //    //let file = File::open(fname)?;
+        //    //let reader = BufReader::new(file);
+        //    //let mut deserializer = Deserializer::new(reader);
+        //    //let result: Map = serde::Deserialize::deserialize(&mut deserializer)?;
+        //    //return Ok(result);
+        //    //let mut deserializer = rmp_serde::Deserializer::new(reader);
+        //    //let result: Map = serde::Deserialize::deserialize(&mut deserializer)?;
+        //    //let ret: Result<Map, Box<dyn std::error::Error>> = Ok(result);
+        //    // read the whole file
+        //    let mut vec_buffer = Vec::new();
+        //    match reader.read_to_end(&mut vec_buffer) {
+        //        Ok(_buff_size) => {
+        //            let bin_buffer = vec_buffer.to_owned();
+        //            let map_from_serialized_data = Map::deserialize_for_load(&bin_buffer).unwrap();
+        //            Ok::<Map, Box<dyn std::error::Error>>(map_from_serialized_data)
+        //        }
+        //        Err(e) => Err::<Map, Box<dyn std::error::Error>>(Box::new(e)),
+        //    }
+        //};
+
+        let unit_test_bin_file = "./unit_test_serde.bin".to_owned();
+        let res = match Resource::new(unit_test_bin_file.clone()) {
+            Ok(res_id) => Resource::get(res_id).unwrap(),
             Err(e) => {
-                println!("{}", e.to_string());
-                let ret = Err("Call to Map::serialize_for_save failed".into());
-                ret
+                Resource::get(Resource::create(unit_test_bin_file.clone(), false).unwrap()).unwrap()
             }
         };
-
-        let read_data = |fname: &String| {
-            let file = File::open(fname)?;
-            let mut reader = BufReader::new(file);
-            //let file = File::open(fname)?;
-            //let reader = BufReader::new(file);
-            //let mut deserializer = Deserializer::new(reader);
-            //let result: Map = serde::Deserialize::deserialize(&mut deserializer)?;
-            //return Ok(result);
-            //let mut deserializer = rmp_serde::Deserializer::new(reader);
-            //let result: Map = serde::Deserialize::deserialize(&mut deserializer)?;
-            //let ret: Result<Map, Box<dyn std::error::Error>> = Ok(result);
-
-            // read the whole file
-            let mut vec_buffer = Vec::new();
-            match reader.read_to_end(&mut vec_buffer) {
-                Ok(_buff_size) => {
-                    let bin_buffer = vec_buffer.to_owned();
-                    let map_from_serialized_data = Map::deserialize_for_load(&bin_buffer).unwrap();
-                    Ok::<Map, Box<dyn std::error::Error>>(map_from_serialized_data)
-                }
-                Err(e) => Err::<Map, Box<dyn std::error::Error>>(Box::new(e)),
-            }
-        };
-
         let mut the_map = Map::create(64, 128).unwrap(); // gotta make it mutable if we're going to allow update
         let pos_x = 3;
         let pos_y = 5;
@@ -628,23 +657,25 @@ mod tests {
             .set(layer_id, new_val)
             .unwrap(); // should throw with Unwrap()
 
-        let unit_test_bin_file = "./unit_test_serde.bin".to_owned();
         // serialize to buffer
-        let my_map_serialized = write_data(&unit_test_bin_file, &the_map).unwrap();
+        let _rs = res.write_data(|| the_map.serialize_for_save());
+        let my_map_serialized = res.write_data(|| the_map.serialize_for_save()).unwrap();
+
         let map_from_serialized_data = Map::deserialize_for_load(&my_map_serialized).unwrap();
         assert_eq!(the_map, map_from_serialized_data);
 
         // deserialize the buffer that was just serialized
-        let my_map_deserialized = read_data(&unit_test_bin_file).unwrap();
+        let my_map_deserialized = res.read_data(Map::deserialize_for_load).unwrap();
 
-        std::fs::remove_file(unit_test_bin_file).unwrap();
+        std::fs::remove_file(unit_test_bin_file.clone()).unwrap();
 
         // should be about to just do struct equate
         assert_eq!(the_map, my_map_deserialized);
 
         // but just in case, we'll also check that the value we set is valid...
         assert_eq!(
-            my_map_deserialized.grid[pos_y as usize][pos_x as usize].layers[layer_id as usize].val,
+            my_map_deserialized.grid[pos_y as usize][pos_x as usize].layers[layer_id as usize]
+                .entity,
             new_val
         );
     }

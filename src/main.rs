@@ -1,17 +1,19 @@
 include!(concat!(env!("OUT_DIR"), "/hello.rs")); // see build.rs
-                                                 //use crate::io::stdin;
 use device_query::{DeviceQuery, DeviceState, Keycode};
-use std::io::stdin;
+//use lib_tower_defense::{entity_system, resource_system, sprite_system};
+use lib_tower_defense::{entity_system, sprite_system};
+
 use std::{
-    error::Error,
-    fs::File,
-    io::{self, BufReader, BufWriter, Read, Write},
+    io,
     process::{Command, Output},
     thread, time,
 };
 use terminal_size::{terminal_size, Height, Width}; // need this to clear screen logically, since we cannot call 'tput cols' and 'tput lines'
 
-pub use lib_tower_defense::map::{CellLayer, Map, MapCell, TCellValue};
+pub use lib_tower_defense::entity_system::*;
+pub use lib_tower_defense::map::*;
+pub use lib_tower_defense::resource_system::*;
+pub use lib_tower_defense::sprite_system::*;
 
 const SAMPLE_VIEW_WIDTH: u8 = 80;
 const SAMPLE_VIEW_HEIGHT: u8 = 40;
@@ -25,7 +27,7 @@ const STR_ESCAPE: &str = "\x1b";
 // "bash -c 'ls -ltArh'" will not work (PowerShell will never be able to locate bash.exe)
 // also, recommend doing the '#[cfg(target_os = "linux")]' and '#[cfg(not(target_os = "linux"))]' to
 // conditionally call one route for linux/bash and other for powershell...
-fn do_process(str_cmd: &str) -> Result<(String, String), String> {
+fn _do_process(str_cmd: &str) -> Result<(String, String), String> {
     //let output = Command::new(str_cmd[0])
     //    .arg(str_cmd[1])
     //    .output()
@@ -107,7 +109,7 @@ fn clear_screen() -> () {
     );
     let blank_line_str = make_line_str(cols as u8, clear_char);
 
-    let blank_line = make_line_ch(cols as u8, ' ');
+    let _blank_line = make_line_ch(cols as u8, ' ');
     //let debug_line = make_line(cols as u8 - 2, '.');
     for _ in 0..lines {
         println!("{}", blank_line_str)
@@ -116,7 +118,7 @@ fn clear_screen() -> () {
     home_screen();
 }
 
-fn render(view: Vec<i64>, cursor_x: u8, cursor_y: u8, status: String) {
+fn render(view: Vec<Option<TEntityID>>, cursor_x: u8, cursor_y: u8, status: String) {
     // NOTE: In general, using ncurses is the way to go, but unfortunately,
     // it's not available to Windows, so I'll be using ANSI cursor (XTerm, not VT100)
     // to deal with all the trivial rendering
@@ -128,7 +130,7 @@ fn render(view: Vec<i64>, cursor_x: u8, cursor_y: u8, status: String) {
         set_cursor(col, row);
         print!("{}", s);
     };
-    let print_ch_at = |col: i32, row: i32, ch: &char| {
+    let _print_ch_at = |col: i32, row: i32, ch: &char| {
         set_cursor(col, row);
         print!("{}", ch);
     };
@@ -139,9 +141,9 @@ fn render(view: Vec<i64>, cursor_x: u8, cursor_y: u8, status: String) {
         return format!("{}[7m{}{}[0m", STR_ESCAPE, ch, STR_ESCAPE);
     };
 
-    let clear_screen_with_char = |w: i32, h: i32, clchar: char, border_chars_lrtb: [char; 4]| {
+    let clear_screen_with_char = |_w: i32, _h: i32, clchar: char, border_chars_lrtb: [char; 4]| {
         let chline: [char; SAMPLE_VIEW_WIDTH as usize] = [clchar; SAMPLE_VIEW_WIDTH as usize];
-        let clear_line_for_view = make_line_from_slice(&chline);
+        let _clear_line_for_view = make_line_from_slice(&chline);
         let clear_line = make_line_from_slice(&chline);
         let top_line =
             make_line_from_slice(&[border_chars_lrtb[2]; SAMPLE_VIEW_WIDTH as usize + 2]); // +2 to adjust for left+right borders
@@ -183,7 +185,10 @@ fn render(view: Vec<i64>, cursor_x: u8, cursor_y: u8, status: String) {
         for w_index in 0..SAMPLE_VIEW_WIDTH {
             let flattened_view_index =
                 (h_index as usize * SAMPLE_VIEW_WIDTH as usize) + w_index as usize; // NOTE: will get overflow if you do not explicitly cast here
-            let val_from_view = view[flattened_view_index] as usize;
+            let val_from_view = match view[flattened_view_index] {
+                Some(vfv) => vfv as usize,
+                None => 0,
+            };
             let ch: char = LAYER_CHARS[val_from_view % LAYER_CHARS.len()] as char;
 
             // NOTE: cursor postion is 1-based
@@ -234,50 +239,6 @@ fn render(view: Vec<i64>, cursor_x: u8, cursor_y: u8, status: String) {
     home_screen();
 }
 
-fn write_data(fname: &String, the_map: &Map) -> Result<Vec<u8>, Box<dyn Error>> {
-    match the_map.serialize_for_save() {
-        Ok(result_map) => {
-            println!("Serialized {} bytes, begin writing...", result_map.len());
-            let file = File::create(fname)?;
-            let mut writer = BufWriter::new(file);
-            match writer.write_all(&result_map) {
-                Ok(()) => {
-                    let ret_result: Result<Vec<u8>, Box<dyn std::error::Error>> =
-                        Ok(result_map.to_owned());
-                    ret_result
-                }
-                Err(e) => Err::<Vec<u8>, Box<dyn std::error::Error>>(Box::new(e)),
-            }
-        }
-        Err(e) => {
-            println!("{}", e.to_string());
-            let ret = Err("Call to Map::serialize_for_save failed".into());
-            ret
-        }
-    }
-}
-
-fn read_data(fname: &String) -> Result<Map, Box<dyn Error>> {
-    //let file = File::open(fname)?;
-    //let reader = BufReader::new(file);
-    //let mut deserializer = Deserializer::new(reader);
-    //let result: Map = serde::Deserialize::deserialize(&mut deserializer)?;
-    //return Ok(result);
-
-    let file = File::open(fname)?;
-    let mut reader = BufReader::new(file);
-    // read the whole file
-    let mut vec_buffer = Vec::new();
-    match reader.read_to_end(&mut vec_buffer) {
-        Ok(_buff_size) => {
-            let bin_buffer = vec_buffer.to_owned();
-            let map_from_serialized_data = Map::deserialize_for_load(&bin_buffer).unwrap();
-            Ok::<Map, Box<dyn std::error::Error>>(map_from_serialized_data)
-        }
-        Err(e) => Err::<Map, Box<dyn std::error::Error>>(Box::new(e)),
-    }
-}
-
 #[derive(PartialEq)] // need PartialEq so we can test outside the 'match{}' block via 'if' statement
 enum BreakLoopType {
     NoBreak = 0,
@@ -290,32 +251,70 @@ fn main() {
     clear_screen();
     //let ms = time::Duration::from_millis(300); // 1/3 second
     let ms = time::Duration::from_millis(50);
+
+    let temp_sprite_resource_id = 1 as TResourceID; // when we have a sprite as a resource, update this...
+
     let file_paths = "./test.save.bin".to_owned();
-    let mut the_map = match read_data(&file_paths) {
-        Ok(m) => {
-            if m.get_width() != SAMPLE_MAP_WIDTH {
-                panic!("Invalid data");
-            }
-            if m.get_height() != SAMPLE_MAP_HEIGHT {
-                panic!("Invalid data");
-            }
-            Ok(m)
+    let mut map_from_local_life: Map;
+    let (map_resource, the_map) = match Resource::new(file_paths.clone()) {
+        Ok(res_id) => {
+            let res_result = Resource::get(res_id);
+            let ret_tuple_result: Result<(Option<Resource>, &mut Map), String> = match res_result {
+                Ok(res) => match res.read_data(Map::deserialize_for_load) {
+                    Ok(m) => {
+                        if m.get_width() != SAMPLE_MAP_WIDTH {
+                            panic!("Invalid data");
+                        }
+                        if m.get_height() != SAMPLE_MAP_HEIGHT {
+                            panic!("Invalid data");
+                        }
+                        map_from_local_life = m;
+                        Ok((Some(res), &mut map_from_local_life))
+                    }
+                    Err(e) => {
+                        // if file exists, throw a panic!(), else assume bin data does not exist, and create a brand new map
+                        println!("Error: {}", e);
+                        Err(e)
+                    }
+                },
+                Err(e) => {
+                    let ret_err =
+                        format!(
+                        "Was able to locate file '{}' (resource ID={}), but encountered error '{}'",
+                        file_paths.clone(), res_id, e
+                    );
+                    println!("{}", ret_err);
+                    Err(ret_err)
+                }
+            };
+            ret_tuple_result
         }
         Err(io_error) => {
             // if file exists, throw a panic!(), else assume bin data does not exist, and create a brand new map
-            println!("Error: {}", io_error.to_string());
+            let str_io_error = io_error.to_string();
+            let ret_err = Err::<(_, _), String>(str_io_error.to_owned());
+            println!("Error: {}", str_io_error);
 
-            match io_error.downcast_ref::<io::Error>() {
+            let ret_error = match io_error.downcast_ref::<io::Error>() {
                 Some(io_casted_error) => match io_casted_error.kind() {
-                    io::ErrorKind::NotFound => Map::create(SAMPLE_MAP_WIDTH, SAMPLE_MAP_HEIGHT),
-                    _ => Err(io_error.to_string()),
+                    io::ErrorKind::NotFound => {
+                        // create a NEW map instead since we could not load it...
+                        match Map::create(SAMPLE_MAP_WIDTH, SAMPLE_MAP_HEIGHT) {
+                            Ok(new_map) => {
+                                map_from_local_life = new_map;
+                                Ok((None, &mut map_from_local_life))
+                            }
+                            Err(e_map) => Err(e_map),
+                        }
+                    }
+                    _ => ret_err,
                 },
-                _ => Err(io_error.to_string()),
-            }
+                _ => ret_err,
+            };
+            ret_error
         }
     }
     .unwrap();
-
     let mut view_x: u16 = 0;
     let mut view_y: u16 = 0;
     let mut cursor_x: u8 = 0;
@@ -447,14 +446,25 @@ fn main() {
                             match the_map.get_cell(pos_x, pos_y).unwrap().first().is_some() {
                                 true => the_map.get_cell(pos_x, pos_y).unwrap(),
                                 false => MapCell {
-                                    layers: vec![CellLayer::new(0, 0); 1],
+                                    layers: vec![
+                                        CellLayer::new(
+                                            0,
+                                            entity_system::add_entity(
+                                                sprite_system::add_sprite(&temp_sprite_resource_id)
+                                                    .unwrap(),
+                                                0x80
+                                            )
+                                            .unwrap()
+                                        );
+                                        1
+                                    ],
                                 },
                             };
 
                         for layer in cursor_position_cell.layers.clone() {
                             let temp_cycle_the_value_on_space =
-                                match (layer.val + 1) as usize > LAYER_CHARS.len() {
-                                    false => layer.val + 1,
+                                match (layer.entity + 1) as usize > LAYER_CHARS.len() {
+                                    false => layer.entity + 1,
                                     true => 0,
                                 };
                             // Note: set() should add if missing, but in this case, we're iterating through existing Layers, so it assumes it's always an update/repleace
@@ -473,13 +483,18 @@ fn main() {
         }
 
         // for now, only update text if key is pressed
-        let the_val = match the_map
+        let sprite_id = sprite_system::get(&temp_sprite_resource_id).unwrap().id;
+        let entity_id_as_the_val = match the_map
             .get_cell(view_x + cursor_x as u16, view_y + cursor_y as u16)
             .unwrap()
-            .first()
+            .first()    // TODO: Sort by layer-weight ascending, and take the lightest one that bubbled to the top
         {
-            Some(v) => v.val,
-            None => 0,
+            Some(v) => v.entity,
+            None => entity_system::add_entity(
+                sprite_system::add_sprite(&temp_sprite_resource_id).unwrap(),   // sprite_id
+                0x80,
+            )
+            .unwrap(),
         };
         let mut keys_input = "[".to_owned();
         for k in test_keys {
@@ -487,7 +502,7 @@ fn main() {
         }
         keys_input.push_str("]");
         let status = format!(
-            "Map:{:?} - World:({}, {}) Cursor:({}, {}) Pos:({}, {}) Val:{} - Mouse:{:?} - Keys:{}\nCursor keys, PgUp, PgDn, '[', ']', 'space', 'Q', and Esc",
+            "Map:{:?} - World:({}, {}) Cursor:({}, {}) Pos:({}, {}) Val:(EID:{}; SID:{})- Mouse:{:?} - Keys:{}\nCursor keys, PgUp, PgDn, '[', ']', 'space', 'Q', and Esc",
             the_map.get_upper_left(),
             view_x,
             view_y,
@@ -495,7 +510,8 @@ fn main() {
             cursor_y,
             view_x + cursor_x as u16,
             view_y + cursor_y as u16,
-            the_val,
+            entity_id_as_the_val,
+            sprite_id,
             mouse.coords,
             keys_input
         );
@@ -505,7 +521,14 @@ fn main() {
             BreakLoopType::QuitWithoutSave => break,
             BreakLoopType::SaveAndExit => {
                 // update data and quit
-                write_data(&file_paths, &the_map).unwrap();
+                let _bytes_written = match map_resource {
+                    Some(m) => m.write_data(|| the_map.serialize_for_save()).unwrap(),
+                    _ =>
+                    // try to create new resource and attempt to save it?
+                    {
+                        Vec::new()
+                    }
+                };
                 break;
             }
             BreakLoopType::ApplicationError => break,
@@ -519,10 +542,7 @@ fn main() {
     //io::stdin().flush();
     std::io::stdin().read_line(&mut String::new()).unwrap();
     #[cfg(target_os = "linux")]
-    unsafe {
-        // the Linux way...
-        libc::fflush(stdin());
-    }
+    std::io::stdin().read_line(&mut String::new()).unwrap();
     //if cfg!(target_os = "windows") {
     //    //#[cfg(not(target_os = "linux"))]
     //    #[cfg(target_os = "windows")]
