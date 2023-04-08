@@ -1,6 +1,7 @@
 use once_cell::sync::Lazy;
 use serde_derive::{Deserialize, Serialize};
 use std::error::Error;
+use std::fs;
 use std::sync::Mutex;
 use std::{
     fs::{File, OpenOptions},
@@ -37,25 +38,44 @@ impl Resource {
     // Note: Assume resource file will always exist (preprocessed/created)
     // in order to create new file (i.e. to save data), see create() impl
     // (write_data requires &Self, while/but create() does not)
-    pub fn new(file_paths: String) -> Result<TResourceID, Box<dyn std::error::Error>> {
-        let file = File::open(file_paths.to_owned())?;
+    pub fn new(
+        file_paths: String,
+        allow_empty_file: bool,
+    ) -> Result<TResourceID, Box<dyn std::error::Error>> {
+        if file_paths.len() == 0 {
+            return Err("file_paths passed is empty string (unspecified)".into());
+        }
+        let metadata_result = fs::metadata(file_paths.clone());
+        let file_length = match metadata_result {
+            Ok(metadata) => metadata.len(),
+            Err(_) => 0,
+        };
+        if (file_length == 0) && (allow_empty_file == false) {
+            return Err(format!("file_paths '{}' passed is 0 bytes in length", file_paths).into());
+        }
+
+        let file = File::open(file_paths.to_owned()).unwrap();
         let mut reader = BufReader::new(file);
         let mut vec_buffer = Vec::new();
         match reader.read_to_end(&mut vec_buffer) {
-            Ok(_buff_size) => {
+            Ok(buff_size) => {
                 let mut singleton = RESOURCE_SINGLETON.lock().unwrap();
                 let max_id = match singleton.resources.iter().max_by_key(|e| e.id) { //.unwrap().id;
                     Some(o) => o.id,
                     _ => 0 as TResourceID,  // edge case when resources list is empty
                 };
                 let new_id = max_id + 1;
+                if (vec_buffer.len() == 0 || buff_size == 0) && (allow_empty_file == false)
+                {
+                    return Err("File exists (was able to open), but buffer length is 0".into());
+                }
                 let ret_val = Resource {
                     id: new_id,
                     paths: file_paths,
                     buffer: vec_buffer.to_owned(),
                 };
                 singleton.resources.push(ret_val);
-                Ok::<TResourceID, Box<dyn std::error::Error>>(new_id)
+                Ok::<_, Box<dyn std::error::Error>>(new_id)
             }
             Err(e) =>
                 // use result.downcast_ref::<io::Error>() such as with match{io::ErrorKind::NotFOund}.  i.e.
@@ -71,7 +91,7 @@ impl Resource {
                 //        _ => Err(io_error.to_string()),
                 //    }
                 //}
-                Err::<TResourceID, Box<dyn std::error::Error>>(Box::new(e)),
+                Err::<_, Box<dyn std::error::Error>>(Box::new(e)),
         }
     }
 
@@ -85,8 +105,24 @@ impl Resource {
             .create_new(overwrite_if_exists == false)
             .open(file_paths.to_owned())
         {
-            Ok(file) => Resource::new(file_paths),
-            Err(e) => Err(e.into()),
+            Ok(_file) => Resource::new(file_paths, true),
+            Err(e) => match e.kind() {
+                std::io::ErrorKind::AlreadyExists => {
+                    if overwrite_if_exists {
+                        match File::create(file_paths.clone()) {
+                            Ok(_file2) => Resource::new(file_paths, true),
+                            Err(e2) => Err(e2.into()),
+                        }
+                    } else {
+                        Resource::new(file_paths, true)
+                    }
+                }
+                std::io::ErrorKind::NotFound => match File::create(file_paths.clone()) {
+                    Ok(_file2) => Resource::new(file_paths, true),
+                    Err(e2) => Err(e2.into()),
+                },
+                _ => Err(e.into()),
+            },
         };
     }
     pub fn get(res_id: TResourceID) -> Result<Resource, String> {
@@ -102,7 +138,7 @@ impl Resource {
     }
 
     pub fn write_data<TF>(
-        self: &Self,
+        self: &mut Self,
         func_serialize_for_save: TF,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>>
     where
@@ -115,6 +151,7 @@ impl Resource {
                 let mut writer = BufWriter::new(file);
                 match writer.write_all(&serialized_buffer) {
                     Ok(()) => {
+                        self.buffer = serialized_buffer.clone(); // update last read buffer with newly (and successfully) written buffer
                         let ret_result: Result<Vec<u8>, Box<dyn std::error::Error>> =
                             Ok(serialized_buffer.to_owned());
                         ret_result
@@ -151,6 +188,9 @@ impl Resource {
         //    }
         //    Err(e) => Err::<T, Box<dyn std::error::Error>>(Box::new(e)),
         //}
+        if self.buffer.len() == 0 {
+            return Err("Buffer length for the resource is 0 bytes".to_owned());
+        }
         match func_deserialize_for_load(&self.buffer) {
             Ok(o) => Ok(o),
             Err(e) => Err(e),

@@ -256,7 +256,7 @@ fn main() {
 
     let file_paths = "./test.save.bin".to_owned();
     let mut map_from_local_life: Map;
-    let (map_resource, the_map) = match Resource::new(file_paths.clone()) {
+    let (map_resource, the_map) = match Resource::new(file_paths.clone(), false) {
         Ok(res_id) => {
             let res_result = Resource::get(res_id);
             let ret_tuple_result: Result<(Option<Resource>, &mut Map), String> = match res_result {
@@ -522,7 +522,7 @@ fn main() {
             BreakLoopType::SaveAndExit => {
                 // update data and quit
                 let _bytes_written = match map_resource {
-                    Some(m) => m.write_data(|| the_map.serialize_for_save()).unwrap(),
+                    Some(mut m) => m.write_data(|| the_map.serialize_for_save()).unwrap(),
                     _ =>
                     // try to create new resource and attempt to save it?
                     {

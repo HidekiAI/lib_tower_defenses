@@ -446,6 +446,10 @@ impl Map {
 
     // NOTE: For now, because we're deserializing from JSON, we receive it as String type
     pub fn deserialize_for_load(bin_data: &Vec<u8>) -> Result<Map, String> {
+        if bin_data.len() == 0 {
+            return Err("bin_data buffer is 0 bytes".to_owned());
+        }
+
         if cfg!(debug_assertions) {
             println!("Begin Deserializing...");
             let _cl = bin_data.clone();
@@ -642,10 +646,18 @@ mod tests {
         //};
 
         let unit_test_bin_file = "./unit_test_serde.bin".to_owned();
-        let res = match Resource::new(unit_test_bin_file.clone()) {
+        match std::fs::remove_file(unit_test_bin_file.clone()) {
+            Ok(()) => println!(
+                "File '{}' deleted prior to beginning the unit-test",
+                unit_test_bin_file
+            ),
+            Err(_e) => (),
+        }
+
+        let mut res = match Resource::new(unit_test_bin_file.clone(), false) {
             Ok(res_id) => Resource::get(res_id).unwrap(),
             Err(e) => {
-                Resource::get(Resource::create(unit_test_bin_file.clone(), false).unwrap()).unwrap()
+                Resource::get(Resource::create(unit_test_bin_file.clone(), true).unwrap()).unwrap()
             }
         };
         let mut the_map = Map::create(64, 128).unwrap(); // gotta make it mutable if we're going to allow update
@@ -660,7 +672,7 @@ mod tests {
         // serialize to buffer
         let _rs = res.write_data(|| the_map.serialize_for_save());
         let my_map_serialized = res.write_data(|| the_map.serialize_for_save()).unwrap();
-
+        assert_ne!(0, my_map_serialized.len());
         let map_from_serialized_data = Map::deserialize_for_load(&my_map_serialized).unwrap();
         assert_eq!(the_map, map_from_serialized_data);
 
