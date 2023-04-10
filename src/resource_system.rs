@@ -1,6 +1,6 @@
 use once_cell::sync::Lazy;
 use serde_derive::{Deserialize, Serialize};
-use std::error::Error;
+
 use std::fs;
 use std::sync::Mutex;
 use std::{
@@ -125,15 +125,19 @@ impl Resource {
             },
         };
     }
-    pub fn get(res_id: TResourceID) -> Result<Resource, String> {
-        let singleton = RESOURCE_SINGLETON.lock().unwrap();
-        let found_index = singleton.resources.binary_search_by(|f| f.id.cmp(&res_id));
-        match found_index {
-            Ok(index) => Ok(singleton.resources[index].clone()), // clone for return
-            Err(e) => Err(format!(
-                "cannot locate index to resource_id={} - {}",
-                res_id, e
-            )),
+    // there is no get(), for it can potentially cause deadlocks based on temptations
+    // to be used at critical sections; hence it is intentionally exposing try_get
+    // that can (and will) return None immediately rather than blocking
+    pub fn try_get(res_id: TResourceID) -> Option<Resource> {
+        match RESOURCE_SINGLETON.try_lock() {
+            Ok(singleton) => {
+                let found_index = singleton.resources.binary_search_by(|f| f.id.cmp(&res_id));
+                match found_index {
+                    Ok(index) => Some(singleton.resources[index].clone()), // clone for return
+                    Err(_) => None,
+                }
+            }
+            Err(_) => None,
         }
     }
 

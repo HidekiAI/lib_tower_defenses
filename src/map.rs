@@ -1,7 +1,6 @@
 extern crate serde;
 use serde::Serialize;
 use serde_derive::{Deserialize, Serialize};
-
 use crate::entity_system::*;
 use crate::resource_system::Resource;
 
@@ -505,6 +504,8 @@ impl Map {
 
 #[cfg(test)]
 mod tests {
+    use crate::resource_system::Resource;
+
     use super::*;
     //use serde_test::{assert_tokens, Token};
 
@@ -655,9 +656,9 @@ mod tests {
         }
 
         let mut res = match Resource::new(unit_test_bin_file.clone(), false) {
-            Ok(res_id) => Resource::get(res_id).unwrap(),
+            Ok(res_id) => Resource::try_get(res_id).unwrap(),
             Err(e) => {
-                Resource::get(Resource::create(unit_test_bin_file.clone(), true).unwrap()).unwrap()
+                Resource::try_get(Resource::create(unit_test_bin_file.clone(), true).unwrap()).unwrap()
             }
         };
         let mut the_map = Map::create(64, 128).unwrap(); // gotta make it mutable if we're going to allow update

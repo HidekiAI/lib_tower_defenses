@@ -9,6 +9,7 @@ static SPRITE_SINGLETON: Lazy<Mutex<SpriteFactory>> =
     Lazy::new(|| Mutex::new(SpriteFactory::new()));
 struct SpriteFactory {
     sprites: Vec<Sprite>,
+    updates: Vec<TSpriteID>,
 }
 
 impl SpriteFactory {
@@ -16,27 +17,38 @@ impl SpriteFactory {
         // Initialize your data here
         SpriteFactory {
             sprites: Vec::new(),
+            updates: Vec::new(),
         }
     }
 }
 
 pub type TSpriteID = u16;
 
-pub fn get(resource_id: &TResourceID) -> Option<Sprite> {
-    let singleton = SPRITE_SINGLETON.lock().unwrap();
-    match singleton
-        .sprites
-        .binary_search_by(|sprite| sprite.resource_id.cmp(&resource_id))
-    {
-        Ok(index) => {
-            return Some(singleton.sprites.get(index).unwrap().clone());
-        }
-        Err(_) => {
-            return None;
-        }
-    };
+// there is no get(), for it can potentially cause deadlocks based on temptations
+// to be used at critical sections; hence it is intentionally exposing try_get
+// that can (and will) return None immediately rather than blocking
+pub fn try_get(resource_id: &TResourceID) -> Option<Sprite> {
+    match SPRITE_SINGLETON.try_lock() {
+        Ok(singleton) => match singleton
+            .sprites
+            .binary_search_by(|sprite| sprite.resource_id.cmp(&resource_id))
+        {
+            Ok(index) => {
+                return Some(singleton.sprites.get(index).unwrap().clone());
+            }
+            Err(_) => {
+                return None;
+            }
+        },
+        Err(_) => None,
+    }
 }
-pub fn add_sprite(resource_id: &TResourceID) -> Result<TSpriteID, String> {
+/// Adds sprites to singleton collection; note that there will often be more
+/// than one sprite with same ResourceID, but will have different SpriteID
+/// assigned to it.  This is because same resource is not assumed to synchronize
+/// on the animations.  I.e. one entity may be in the walking sprite sequence
+/// while another entity, with same sprite group id is firing a projectile
+pub fn add(resource_id: &TResourceID) -> Result<TSpriteID, String> {
     let mut singleton = SPRITE_SINGLETON.lock().unwrap();
 
     // NOTE: because we always get +1 of last max spriteID, there will be (hopefully rare)
@@ -46,7 +58,7 @@ pub fn add_sprite(resource_id: &TResourceID) -> Result<TSpriteID, String> {
         Some(s) => s.id,
         _ => 0 as TSpriteID, // edge-case when list is empty
     };
-    let found_sprite = get(&resource_id);
+    let found_sprite = try_get(&resource_id);
 
     // if resource_id already found/exists, return the previously added spriteID instead, else add and return newly created one
     match found_sprite {
@@ -63,7 +75,7 @@ pub fn add_sprite(resource_id: &TResourceID) -> Result<TSpriteID, String> {
         }
     };
 }
-pub fn del_sprite(sprite_id: TSpriteID) -> Result<TSpriteID, String> {
+pub fn remove(sprite_id: TSpriteID) -> Result<TSpriteID, String> {
     let mut singleton = SPRITE_SINGLETON.lock().unwrap();
 
     let found_index = singleton
@@ -77,18 +89,45 @@ pub fn del_sprite(sprite_id: TSpriteID) -> Result<TSpriteID, String> {
         Err(e) => Err(format!("spriteID={} already delted - {}", sprite_id, e)), // do nothing if already deleted...
     }
 }
-pub fn update_sprites() {
-    //let mut singleton = SPRITE_SINGLETON.lock().unwrap();
+// per frame, this gets called (and emptied on update completions)
+pub fn add_sprite_for_update(sprite_id: TSpriteID) {
+    let mut singleton = SPRITE_SINGLETON.lock().unwrap();
 }
+
+// Note: singleton will be locked (MUTEX) while in this update loop
+pub fn update_sprites() {
+    let mut singleton = SPRITE_SINGLETON.lock().unwrap();
+
+    // only update sprites that has been requested to be updated
+    for sprite_id in &singleton.updates {
+        match singleton.sprites.binary_search_by(|s| s.id.cmp(sprite_id)) {
+            Ok(sid) => {
+                let sp = singleton.sprites[sid];
+                sp.update();
+            }
+            Err(_) => (),
+        };
+    }
+
+    // finally, clear process list
+    singleton.updates.clear();
+}
+
 pub fn reset_sprites() {
     let mut singleton = SPRITE_SINGLETON.lock().unwrap();
     singleton.sprites.clear();
+    singleton.updates.clear();
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
 pub struct Sprite {
-    pub id: TSpriteID,
+    pub id: TSpriteID, // GroupID; groups for example, a Cannon sprite group may have sub-groups of idle, firing, and broken sub-group sprites
     pub resource_id: TResourceID,
+    // TODO: Add sub-group collection (should it be recursive of sprite holding a collection of sprite?)
+}
+impl Sprite {
+    pub fn new() {}
+    pub fn update(self: &Self) {}
 }
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
 include!(concat!(env!("OUT_DIR"), "/hello.rs")); // see build.rs
 use device_query::{DeviceQuery, DeviceState, Keycode};
 //use lib_tower_defense::{entity_system, resource_system, sprite_system};
-use lib_tower_defense::{entity_system, sprite_system};
+use lib_tower_defense::{entity_system, resource_system, sprite_system};
 
 use std::{
     io,
@@ -246,21 +246,34 @@ enum BreakLoopType {
     SaveAndExit = 2,
     ApplicationError,
 }
+fn make_fake_sprite_resource() -> TResourceID {
+    let temp_sprite_resource_id = 42;
+
+    return temp_sprite_resource_id;
+}
+fn make_fake_sprite(temp_sprite_resource_id: TResourceID) -> TSpriteID {
+    let sprite_id = match sprite_system::add(&temp_sprite_resource_id) {
+        Ok(sid) => sid,
+        Err(e) => 0,
+    };
+    return sprite_id;
+}
 
 fn main() {
     clear_screen();
     //let ms = time::Duration::from_millis(300); // 1/3 second
     let ms = time::Duration::from_millis(50);
 
-    let temp_sprite_resource_id = 1 as TResourceID; // when we have a sprite as a resource, update this...
+    let temp_sprite_resource_id = make_fake_sprite_resource();
+    //let temp_sprite_id = make_fake_sprite(temp_sprite_resource_id); // when we have a sprite as a resource, update this...
 
     let file_paths = "./test.save.bin".to_owned();
     let mut map_from_local_life: Map;
     let (map_resource, the_map) = match Resource::new(file_paths.clone(), false) {
         Ok(res_id) => {
-            let res_result = Resource::get(res_id);
+            let res_result = Resource::try_get(res_id);
             let ret_tuple_result: Result<(Option<Resource>, &mut Map), String> = match res_result {
-                Ok(res) => match res.read_data(Map::deserialize_for_load) {
+                Some(res) => match res.read_data(Map::deserialize_for_load) {
                     Ok(m) => {
                         if m.get_width() != SAMPLE_MAP_WIDTH {
                             panic!("Invalid data");
@@ -277,11 +290,11 @@ fn main() {
                         Err(e)
                     }
                 },
-                Err(e) => {
-                    let ret_err =
-                        format!(
-                        "Was able to locate file '{}' (resource ID={}), but encountered error '{}'",
-                        file_paths.clone(), res_id, e
+                None => {
+                    let ret_err = format!(
+                        "Was able to locate file '{}' (resource ID={})",
+                        file_paths.clone(),
+                        res_id
                     );
                     println!("{}", ret_err);
                     Err(ret_err)
@@ -449,8 +462,8 @@ fn main() {
                                     layers: vec![
                                         CellLayer::new(
                                             0,
-                                            entity_system::add_entity(
-                                                sprite_system::add_sprite(&temp_sprite_resource_id)
+                                            entity_system::add(
+                                                sprite_system::add(&temp_sprite_resource_id)
                                                     .unwrap(),
                                                 0x80
                                             )
@@ -483,19 +496,21 @@ fn main() {
         }
 
         // for now, only update text if key is pressed
-        let sprite_id = sprite_system::get(&temp_sprite_resource_id).unwrap().id;
-        let entity_id_as_the_val = match the_map
+        let entity_as_the_val = match the_map
             .get_cell(view_x + cursor_x as u16, view_y + cursor_y as u16)
             .unwrap()
             .first()    // TODO: Sort by layer-weight ascending, and take the lightest one that bubbled to the top
         {
-            Some(v) => v.entity,
-            None => entity_system::add_entity(
-                sprite_system::add_sprite(&temp_sprite_resource_id).unwrap(),   // sprite_id
-                0x80,
-            )
-            .unwrap(),
-        };
+            Some(v) =>
+                entity_system::try_get(v.entity)
+            ,
+            None => {
+                let added_sprite = sprite_system::add(&temp_sprite_resource_id).unwrap();
+                let entity_id = entity_system::add( added_sprite, 0x80).unwrap();
+               entity_system::try_get(entity_id)
+            }
+        }
+        .unwrap();
         let mut keys_input = "[".to_owned();
         for k in test_keys {
             keys_input.push_str(&k.to_string());
@@ -510,8 +525,8 @@ fn main() {
             cursor_y,
             view_x + cursor_x as u16,
             view_y + cursor_y as u16,
-            entity_id_as_the_val,
-            sprite_id,
+            entity_as_the_val.id,
+            entity_as_the_val.sprite_id,
             mouse.coords,
             keys_input
         );
