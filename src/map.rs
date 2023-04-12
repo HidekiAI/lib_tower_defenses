@@ -2,7 +2,7 @@ extern crate serde;
 use serde::Serialize;
 use serde_derive::{Deserialize, Serialize};
 use crate::entity_system::*;
-use crate::resource_system::Resource;
+//use crate::resource_system::Resource;
 
 const MAX_MAP_WIDTH: usize = 1024;
 const MAX_MAP_HEIGHT: usize = 1024;
@@ -494,10 +494,10 @@ impl Map {
         return Err("CODE ME!".to_owned());
     }
 
-    pub fn load(file_path: &String) -> Result<Map, String> {
+    pub fn load(_file_path: &String) -> Result<Map, String> {
         return Err("CODE ME!".to_owned());
     }
-    pub fn save(self: &Self, file_path: &String) -> Result<Map, String> {
+    pub fn save(self: &Self, _file_path: &String) -> Result<Map, String> {
         return Err("CODE ME!".to_owned());
     }
 }
@@ -657,7 +657,7 @@ mod tests {
 
         let mut res = match Resource::new(unit_test_bin_file.clone(), false) {
             Ok(res_id) => Resource::try_get(res_id).unwrap(),
-            Err(e) => {
+            Err(_e) => {
                 Resource::try_get(Resource::create(unit_test_bin_file.clone(), true).unwrap()).unwrap()
             }
         };

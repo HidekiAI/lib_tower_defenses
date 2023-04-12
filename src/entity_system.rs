@@ -97,7 +97,7 @@ pub fn update(last_frame_delta_millis: u128, max_time_slice: u128) {
             == false
     };
 
-    let mut exit_update = false;
+    let mut _exit_update = false;   // even though it's used, rust-analyzer complains that this variable is never read, so use _var to shut compiler up...
     let mut processed_entity_count = 0;
     loop {
         let entity_index = singleton.next_entity_to_update;
@@ -129,15 +129,15 @@ pub fn update(last_frame_delta_millis: u128, max_time_slice: u128) {
         if max_time_slice > 0 {
             if start_time_now.elapsed().as_millis() >= max_time_slice {
                 // bail out if we've exceeded allowed time slice
-                exit_update = true;
+                _exit_update = true;
                 break;
             }
         }
         if processed_entity_count >= singleton.entities.len() {
-            exit_update = true;
+            _exit_update = true;
         }
 
-        if exit_update {
+        if _exit_update {
             break;
         }
     }
@@ -197,7 +197,7 @@ impl Entity {
             sprite_id: sid,
             layer_weight: weight, // mid-weight is 0x80
             current_sprite_index: 0,
-            sprite_update_interval_reset: 60 * 1000,
+            sprite_update_interval_reset: 24 * 1000,
             last_sprite_update_millis: 0,
             health_points: 0,
             mana_points: 0,

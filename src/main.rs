@@ -1,7 +1,7 @@
 include!(concat!(env!("OUT_DIR"), "/hello.rs")); // see build.rs
 use device_query::{DeviceQuery, DeviceState, Keycode};
 //use lib_tower_defense::{entity_system, resource_system, sprite_system};
-use lib_tower_defense::{entity_system, resource_system, sprite_system};
+use lib_tower_defense::{entity_system, sprite_system};
 
 use std::{
     io,
@@ -251,10 +251,10 @@ fn make_fake_sprite_resource() -> TResourceID {
 
     return temp_sprite_resource_id;
 }
-fn make_fake_sprite(temp_sprite_resource_id: TResourceID) -> TSpriteID {
+fn _make_fake_sprite(temp_sprite_resource_id: TResourceID) -> TSpriteID {
     let sprite_id = match sprite_system::add(&temp_sprite_resource_id) {
         Ok(sid) => sid,
-        Err(e) => 0,
+        Err(_e) => 0,
     };
     return sprite_id;
 }

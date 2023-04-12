@@ -92,6 +92,10 @@ pub fn remove(sprite_id: TSpriteID) -> Result<TSpriteID, String> {
 // per frame, this gets called (and emptied on update completions)
 pub fn add_sprite_for_update(sprite_id: TSpriteID) {
     let mut singleton = SPRITE_SINGLETON.lock().unwrap();
+    match singleton.updates.binary_search_by(|k| k.cmp(&sprite_id)) {
+        Ok(_k_index) => (),
+        Err(_) => singleton.updates.push(sprite_id),
+    }
 }
 
 // Note: singleton will be locked (MUTEX) while in this update loop
