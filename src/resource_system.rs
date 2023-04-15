@@ -29,8 +29,8 @@ pub type TResourceID = u16; // TODO: Move this to resource_system when available
 //#[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Resource {
-    id: TResourceID,
-    paths: String,
+    pub id: TResourceID,    // at least make this pub since try_get() returns this entire object rather than the having a getter for each elements of this struct
+    pub paths: String,
     buffer: Vec<u8>, // not for writing, mainly for reading?
 }
 

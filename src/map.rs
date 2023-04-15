@@ -13,7 +13,7 @@ type TCellID = u8; // private
 #[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
 pub struct CellLayer {
     pub id: TCellID,
-    pub entity: TEntityID,
+    pub entity: TEntityID,  // Note that layer_weight is at the Entity level, though it may somewhat make sense that it's at map, but for collision and other relations, it's better that we just store EntityID here and let the entity_system handle all that...
 }
 
 //impl Serialize for CellLayer {

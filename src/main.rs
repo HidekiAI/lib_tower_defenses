@@ -4,6 +4,7 @@ use device_query::{DeviceQuery, DeviceState, Keycode};
 use lib_tower_defense::{entity_system, sprite_system};
 
 use std::{
+    collections::HashSet,
     io,
     process::{Command, Output},
     thread, time,
@@ -251,12 +252,11 @@ fn make_fake_sprite_resource() -> TResourceID {
 
     return temp_sprite_resource_id;
 }
-fn _make_fake_sprite(temp_sprite_resource_id: TResourceID) -> TSpriteID {
-    let sprite_id = match sprite_system::add(&temp_sprite_resource_id) {
-        Ok(sid) => sid,
-        Err(_e) => 0,
-    };
-    return sprite_id;
+fn make_fake_sprites(temp_sprite_resource_id: TResourceID) -> HashSet<TSpriteSubGroupID> {
+    return sprite_system::add(&temp_sprite_resource_id, deserialize_sprite).unwrap();
+}
+fn deserialize_sprite(temp_sprite_resource_id: &TResourceID) -> Vec<Sprite> {
+    return Vec::<Sprite>::new(); // NO sprites for TUI version, return empty list?
 }
 
 fn main() {
@@ -458,20 +458,26 @@ fn main() {
                         let mut cursor_position_cell =
                             match the_map.get_cell(pos_x, pos_y).unwrap().first().is_some() {
                                 true => the_map.get_cell(pos_x, pos_y).unwrap(),
-                                false => MapCell {
-                                    layers: vec![
-                                        CellLayer::new(
-                                            0,
-                                            entity_system::add(
-                                                sprite_system::add(&temp_sprite_resource_id)
-                                                    .unwrap(),
-                                                0x80
-                                            )
-                                            .unwrap()
-                                        );
-                                        1
-                                    ],
-                                },
+                                false => {
+                                    let sprites_added = sprite_system::add(
+                                        &temp_sprite_resource_id,
+                                        deserialize_sprite,
+                                    )
+                                    .to_owned()
+                                    .unwrap();
+
+                                    MapCell {
+                                        layers: sprites_added
+                                            .iter()
+                                            .map(|sid_added| {
+                                                CellLayer::new(
+                                                    0,
+                                                    entity_system::add(sid_added, 0x80).unwrap(),
+                                                )
+                                            })
+                                            .collect(),
+                                    }
+                                }
                             };
 
                         for layer in cursor_position_cell.layers.clone() {
@@ -496,21 +502,49 @@ fn main() {
         }
 
         // for now, only update text if key is pressed
-        let entity_as_the_val = match the_map
-            .get_cell(view_x + cursor_x as u16, view_y + cursor_y as u16)
-            .unwrap()
-            .first()    // TODO: Sort by layer-weight ascending, and take the lightest one that bubbled to the top
+        let possibleLayerTopmost =
+            match the_map.get_cell(view_x + cursor_x as u16, view_y + cursor_y as u16) {
+                Ok(c) => {
+                    let c_layers = c.layers.into_iter();
+                    c_layers
+                        // sort based on min layer_weight is lighter (bubbles towards top)
+                        .min_by_key(|c| match entity_system::try_get(c.entity) {
+                            Some(e) => e.layer_weight, // if tied, will only return the first encountered!
+                            None => panic!(
+                            "either entity_system deadlocked or entity_id={eid} no longer exists",
+                            eid = c.entity
+                        ), // should never happen (unless try_get was going to deadlocked and returned None), so will panic instead of returning u8::MAX
+                        })
+                }
+                Err(e) => None,
+            };
+
+        let make_new_entity = || -> Vec<Entity> {
+            // deal with it like an editor, add/create new element here
+            let added_sprite_groups: HashSet<TSpriteSubGroupID> =
+                make_fake_sprites(temp_sprite_resource_id);
+            let entities = added_sprite_groups
+                .into_iter() // convert
+                .map(|sub_group_id| {
+                    let added_entity_id = entity_system::add(&sub_group_id, 0x80).unwrap();
+                    let r = entity_system::try_get(added_entity_id).unwrap();
+                    return r.to_owned();
+                });
+            return entities.collect();
+        };
+        let entity_as_the_val = match possibleLayerTopmost
+            .map(|cl| entity_system::try_get(cl.entity))
+            .flatten()
         {
-            Some(v) =>
-                entity_system::try_get(v.entity)
-            ,
-            None => {
-                let added_sprite = sprite_system::add(&temp_sprite_resource_id).unwrap();
-                let entity_id = entity_system::add( added_sprite, 0x80).unwrap();
-               entity_system::try_get(entity_id)
+            Some(e) => Some(e.clone()),
+            None =>
+            // deal with it like an editor, add/create new element here
+            {
+                make_new_entity().first().map(|e| *e)
             }
         }
         .unwrap();
+
         let mut keys_input = "[".to_owned();
         for k in test_keys {
             keys_input.push_str(&k.to_string());
@@ -526,7 +560,7 @@ fn main() {
             view_x + cursor_x as u16,
             view_y + cursor_y as u16,
             entity_as_the_val.id,
-            entity_as_the_val.sprite_id,
+            entity_as_the_val.sprites,
             mouse.coords,
             keys_input
         );

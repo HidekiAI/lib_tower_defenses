@@ -26,7 +26,7 @@ impl EntityFactory {
 
 pub type TEntityID = u16;
 
-pub fn add(sprite_id: TSpriteID, layer_weight: u8) -> Result<TEntityID, String> {
+pub fn add(sprite_group_id: &TSpriteSubGroupID, layer_weight: u8) -> Result<TEntityID, String> {
     let mut singleton = ENTITY_SINGLETON.lock().unwrap();
 
     // NOTE: because we always get +1 of last max EntityID, there will be (hopefully rare)
@@ -39,7 +39,7 @@ pub fn add(sprite_id: TSpriteID, layer_weight: u8) -> Result<TEntityID, String> 
 
     let new_entity = Entity {
         id: max_id + 1,
-        sprite_id: sprite_id,
+        sprites: *sprite_group_id,
         layer_weight: layer_weight,
         current_sprite_index: 0,
         sprite_update_interval_reset: 24 * 1000,
@@ -52,7 +52,7 @@ pub fn add(sprite_id: TSpriteID, layer_weight: u8) -> Result<TEntityID, String> 
 
     return Ok(new_entity.id);
 }
-pub fn remove(entity_id: TEntityID) -> Result<TSpriteID, String> {
+pub fn remove(entity_id: &TEntityID) -> Result<TSubSpriteID, String> {
     let mut singleton = ENTITY_SINGLETON.lock().unwrap();
 
     let found_index = singleton
@@ -61,7 +61,7 @@ pub fn remove(entity_id: TEntityID) -> Result<TSpriteID, String> {
     match found_index {
         Ok(i) => {
             let x = singleton.entities.remove(i);
-            return Ok(x.sprite_id);
+            return Ok(x.sprites);
         }
         Err(e) => Err(format!("spriteID={} already delted - {}", entity_id, e)), // do nothing if already deleted...
     }
@@ -97,7 +97,7 @@ pub fn update(last_frame_delta_millis: u128, max_time_slice: u128) {
             == false
     };
 
-    let mut _exit_update = false;   // even though it's used, rust-analyzer complains that this variable is never read, so use _var to shut compiler up...
+    let mut _exit_update = false; // even though it's used, rust-analyzer complains that this variable is never read, so use _var to shut compiler up...
     let mut processed_entity_count = 0;
     loop {
         let entity_index = singleton.next_entity_to_update;
@@ -180,9 +180,9 @@ impl PhysicsObject {
 #[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
 pub struct Entity {
     pub id: TEntityID,
-    pub sprite_id: TSpriteID, // no need to track ResourceID for this SpriteID, since Sprite system internally tracks resources associated to it
+    pub sprites: TSpriteSubGroupID, // no need to track ResourceID for this SpriteID, since Sprite system internally tracks resources associated to it
+    pub current_sprite_index: usize, // Assumes there are no more than 255 sprites in sprite groups
     pub layer_weight: u8, // lighter the weight, it bubbles towards the top when stacked (255 means most heaviest, 0 is lightest)
-    pub current_sprite_index: u8, // Assumes there are no more than 255 sprites in sprite groups
     pub sprite_update_interval_reset: u128, // reset timer value
     pub last_sprite_update_millis: u128, // duration as_millis() returns u128
     pub health_points: u16, // max of 65535 HP
@@ -190,12 +190,12 @@ pub struct Entity {
     pub physics_info: PhysicsObject,
 }
 impl Entity {
-    fn new(id: TEntityID, sid: TSpriteID, weight: u8) -> Entity {
+    pub fn new(id: &TEntityID, sid: &TSpriteSubGroupID, weight: &u8) -> Entity {
         // private, must call add_entity instead!
         Entity {
-            id: id,
-            sprite_id: sid,
-            layer_weight: weight, // mid-weight is 0x80
+            id: *id,
+            sprites: *sid,
+            layer_weight: *weight, // mid-weight is 0x80
             current_sprite_index: 0,
             sprite_update_interval_reset: 24 * 1000,
             last_sprite_update_millis: 0,
@@ -211,7 +211,13 @@ impl Entity {
             self.last_sprite_update_millis = time_left as u128;
         } else {
             // time to update frame and reset clock
-            sprite_system::add_sprite_for_update(self.sprite_id);
+            let sprites = sprite_system::try_get_sprites(&self.sprites);
+            // based on current SubGroupID, because the SpriteID is sequentially assumed, move to next SpriteID
+            self.current_sprite_index += 1;
+            if self.current_sprite_index as usize > sprites.len() {
+                self.current_sprite_index = 0; // reset to loop back
+            }
+            sprite_system::add_sprite_for_update(sprites[self.current_sprite_index].id);
             self.last_sprite_update_millis = self.sprite_update_interval_reset;
         }
         if self.physics_info.current_velocity_x > 0
@@ -239,8 +245,9 @@ mod tests {
     fn test_create_and_remove() {
         let sprite_id = 5;
         let layer_weight = 12;
-        let new_entity = add(sprite_id, layer_weight).unwrap();
-        match remove(new_entity) {
+        let new_entity = add(&sprite_id, layer_weight).unwrap();
+        let _test_new = Entity::new(&0, &0, &0);
+        match remove(&new_entity) {
             Ok(_) => (),
             Err(serr) => panic!("{}", serr),
         }
