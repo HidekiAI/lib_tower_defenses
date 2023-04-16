@@ -15,6 +15,7 @@ terminal_size = "0.2.5"
 thread = "0.1.0"
 time = "0.3.20"
 sdl2 = { version = "0.34", features = ["image"] }
+image = "0.24.6"
 
 [dev-dependencies]
 serde_test = { version = "1.0" }

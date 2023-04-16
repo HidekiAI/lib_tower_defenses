@@ -1,4 +1,7 @@
+mod sdl_sprite;
+
 extern crate sdl2;
+//use crate::sdl_sprite;
 
 use sdl2::event::Event;
 use sdl2::image::{InitFlag, LoadTexture};
@@ -8,6 +11,7 @@ use std::time::Duration;
 
 fn main() {
     println!("bin\\sdl2_view(gui view): This is a shell U.I. via GUI based (mainly SDL2)");
+    let xxxxxx = sdl_sprite::deserialize_sprite;
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
     let _image_context = sdl2::image::init(InitFlag::PNG | InitFlag::JPG).unwrap();

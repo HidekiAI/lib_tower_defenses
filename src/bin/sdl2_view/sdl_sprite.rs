@@ -1,19 +1,79 @@
 use lib_tower_defense::{
     resource_system::{self, TResourceID},
-    sprite_system::TSpriteID,
+    sprite_system::{*, self},
 };
 
 // Note: at this level, we assume sprites are based off of SDL2 agnostic
 use sdl2::{image::LoadSurface, rect::Rect, surface::Surface};
 
 use std::{path::Path, sync::Mutex};
+
+use image::{GenericImageView, Rgba};
+
+// This version of the function takes an additional chroma_key: Option<Rgba<u8>> parameter.
+// If chroma_key is Some(key), then pixels with the value key will be treated as transparent.
+// If chroma_key is None, then only pixels with an alpha value of 0 will be treated as transparent.
+
+fn find_bounding_boxes(image: &image::DynamicImage, chroma_key: Option<Rgba<u8>>) -> Vec<Rect> {
+    let mut boxes = Vec::new();
+    let (width, height) = image.dimensions();
+    let mut visited = vec![vec![false; height as usize]; width as usize];
+    for y in 0..height {
+        for x in 0..width {
+            if visited[x as usize][y as usize] {
+                continue;
+            }
+            let pixel = image.get_pixel(x, y);
+            if pixel[3] != 0 && chroma_key.map_or(true, |key| key != pixel) {
+                let mut min_x = x;
+                let mut max_x = x;
+                let mut min_y = y;
+                let mut max_y = y;
+                let mut stack = vec![(x, y)];
+                while let Some((x, y)) = stack.pop() {
+                    if visited[x as usize][y as usize] {
+                        continue;
+                    }
+                    visited[x as usize][y as usize] = true;
+                    let pixel = image.get_pixel(x, y);
+                    if pixel[3] != 0 && chroma_key.map_or(true, |key| key != pixel) {
+                        min_x = min_x.min(x);
+                        max_x = max_x.max(x);
+                        min_y = min_y.min(y);
+                        max_y = max_y.max(y);
+                        if x > 0 {
+                            stack.push((x - 1, y));
+                        }
+                        if x < width - 1 {
+                            stack.push((x + 1, y));
+                        }
+                        if y > 0 {
+                            stack.push((x, y - 1));
+                        }
+                        if y < height - 1 {
+                            stack.push((x, y + 1));
+                        }
+                    }
+                }
+                boxes.push(Rect::new(
+                    min_x as i32,
+                    min_y as i32,
+                    (max_x - min_x + 1) as u32,
+                    (max_y - min_y + 1) as u32,
+                ));
+            }
+        }
+    }
+    boxes
+}
+
 pub struct ViewSprite {
     sprite_id: sprite_system::TSpriteID, // should be able to extract ResourceID/GroupID, SubGroupID, SubSpriteID from this ID...
-    sprite_width: u32,    // dimension of sprite group
+    sprite_width: u32,                   // dimension of sprite group
     sprite_height: u32,
 }
 
-fn deserialize_sprite(temp_sprite_resource_id: &TResourceID) -> Vec<Sprite> {
+pub fn deserialize_sprite(temp_sprite_resource_id: &TResourceID) -> Vec<Sprite> {
     todo!("CODE ME!")
 }
 
