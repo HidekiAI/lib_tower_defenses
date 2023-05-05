@@ -1,7 +1,7 @@
-extern crate serde;
-use serde::Serialize;
-use serde_derive::{Deserialize, Serialize};
+//extern crate serde;
 use crate::entity_system::*;
+use serde::Serialize;
+use serde_derive::Deserialize;
 //use crate::resource_system::Resource;
 
 const MAX_MAP_WIDTH: usize = 1024;
@@ -13,7 +13,7 @@ type TCellID = u8; // private
 #[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
 pub struct CellLayer {
     pub id: TCellID,
-    pub entity: TEntityID,  // Note that layer_weight is at the Entity level, though it may somewhat make sense that it's at map, but for collision and other relations, it's better that we just store EntityID here and let the entity_system handle all that...
+    pub entity: TEntityID, // Note that layer_weight is at the Entity level, though it may somewhat make sense that it's at map, but for collision and other relations, it's better that we just store EntityID here and let the entity_system handle all that...
 }
 
 //impl Serialize for CellLayer {
@@ -420,6 +420,7 @@ impl Map {
             )
         }
         let mut dest_buffer = Vec::new();
+        // serde::serialize()
         return match self.serialize(&mut rmp_serde::Serializer::new(&mut dest_buffer)) {
             Ok(_s) => {
                 if cfg!(debug_assertions) {
@@ -658,7 +659,8 @@ mod tests {
         let mut res = match Resource::new(unit_test_bin_file.clone(), false) {
             Ok(res_id) => Resource::try_get(res_id).unwrap(),
             Err(_e) => {
-                Resource::try_get(Resource::create(unit_test_bin_file.clone(), true).unwrap()).unwrap()
+                Resource::try_get(Resource::create(unit_test_bin_file.clone(), true).unwrap())
+                    .unwrap()
             }
         };
         let mut the_map = Map::create(64, 128).unwrap(); // gotta make it mutable if we're going to allow update

@@ -1,3 +1,4 @@
+// NOTE: Looking into amathest engine, using shred (shared resource dispatcher) which works well with specs (because specs is by amathyst)
 use once_cell::sync::Lazy;
 use serde_derive::{Deserialize, Serialize};
 

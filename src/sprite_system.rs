@@ -245,19 +245,21 @@ pub struct Sprite {
 }
 impl Sprite {
     pub fn new() -> Sprite {
+        let singleton = SPRITE_SINGLETON.lock().unwrap();
+        let max_id = singleton.sprites.iter().max_by_key(|s| s.id).unwrap().id;
         Sprite {
-            id: todo!(),
-            group_id: todo!(),
-            subgroup_id: todo!(),
-            sub_id: todo!(),
-            width: todo!(),
-            height: todo!(),
-            hotpoint_x: todo!(),
-            hotpoint_y: todo!(),
-            collision_rect_upper_left_x: todo!(),
-            collision_rect_upper_left_y: todo!(),
-            collision_rect_width: todo!(),
-            collision_rect_height: todo!(),
+            id: max_id + 1,
+            group_id: 0,
+            subgroup_id: 0,
+            sub_id: 0,
+            width: 0,
+            height: 0,
+            hotpoint_x: 0,
+            hotpoint_y: 0,
+            collision_rect_upper_left_x: 0,
+            collision_rect_upper_left_y: 0,
+            collision_rect_width: 0,
+            collision_rect_height: 0,
         }
     }
     pub fn update(self: &Self) {

@@ -352,13 +352,25 @@ fn main() {
     //}
 
     let mut break_loop = BreakLoopType::NoBreak;
-    loop {
+    'main_game_outer_loop: loop {
         let view = the_map
             .build_view(0, 0, SAMPLE_VIEW_WIDTH, SAMPLE_VIEW_HEIGHT)
             .unwrap();
         if view.len() == 0 {
             break_loop = BreakLoopType::ApplicationError;
         }
+
+        //'main_game_loop: loop {
+        //for event in event_pump.poll_iter() {
+        //    match event {
+        //        Event::Quit { .. }
+        //        | Event::KeyDown {
+        //            keycode: Some(Keycode::Escape),
+        //            ..
+        //        } => break 'main_game_loop,
+        //        _ => {}
+        //    }
+        //}
 
         let mouse = device_state.get_mouse();
         let keys: Vec<Keycode> = device_state.get_keys();
@@ -370,13 +382,13 @@ fn main() {
                         // Prompt to save data
                         println!("escape");
                         break_loop = BreakLoopType::SaveAndExit;
-                        break;
+                        break 'main_game_outer_loop;
                     }
                     Keycode::Q => {
                         // Prompt to quit without save
                         println!("quit");
                         break_loop = BreakLoopType::QuitWithoutSave;
-                        break;
+                        break 'main_game_outer_loop;
                     }
                     Keycode::PageUp => {
                         if view_y > move_step_y as u16 {
@@ -567,7 +579,7 @@ fn main() {
         // sleep mainly so that we can yield the app and let other processes run...
         thread::sleep(ms);
         match break_loop {
-            BreakLoopType::QuitWithoutSave => break,
+            BreakLoopType::QuitWithoutSave => break 'main_game_outer_loop,
             BreakLoopType::SaveAndExit => {
                 // update data and quit
                 let _bytes_written = match map_resource {
@@ -578,9 +590,9 @@ fn main() {
                         Vec::new()
                     }
                 };
-                break;
+                break 'main_game_outer_loop;
             }
-            BreakLoopType::ApplicationError => break,
+            BreakLoopType::ApplicationError => break 'main_game_outer_loop,
             BreakLoopType::NoBreak => (),
         }
         render(view, cursor_x, cursor_y, status);

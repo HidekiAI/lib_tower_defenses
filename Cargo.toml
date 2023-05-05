@@ -14,8 +14,17 @@ serde_derive = "1.0.158"
 terminal_size = "0.2.5"
 thread = "0.1.0"
 time = "0.3.20"
-sdl2 = { version = "0.34", features = ["image"] }
 image = "0.24.6"
+bevy = "0.10.1"
+specs = "0.14"
+specs-derive = "0.4"
+rand = "0.6"
+capnp = "0.16.1"
+capnp-rpc = "0.16.2"
 
 [dev-dependencies]
 serde_test = { version = "1.0" }
+
+[dependencies.sdl2]
+default-features = false
+features = ["image"]
