@@ -1,5 +1,7 @@
 # lib_tower_defenses
 
+WIP (WORK IN PROGRESS) - Currently residing here as public so that I can showcase myself during this period of which I am now looking for new employment opportunities.  As soon as I am employed, I MAY possibly turn this project back to private; once I get it all starting to become more finctional, I may then again return this crate back to public.
+
 RUST based tower-defense lib, main goal design is to be like combination of Starcraft and Mindustry
 
 ## To Verify
